@@ -81,7 +81,7 @@ def plot_flux(data_new, data_ref, cenwave):
         data_new['DQ_WGT'][0]
     )
 
-    flux_ref, edges_ref, bin_size_ref = binned(
+    flux_ref, edges_ref, _ = binned(
         cenwave,
         data_ref['SEGMENT'],
         data_ref['WAVELENGTH'][0],
@@ -99,7 +99,7 @@ def plot_flux(data_new, data_ref, cenwave):
     fig = plt.figure(tight_layout=True)
     gs  = gridspec.GridSpec(2,3)
 
-    # PLOT 1 - COMPARE MODEL TO OBSERVATIONS
+    # PLOT 1 - COMPARISON OF THE TWO VISITS
     ax = fig.add_subplot(gs[0,:])
     ax.scatter(wl_new, (flux_new - flux_ref) / flux_ref, marker='v', c='g', label='Flux Difference')
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
@@ -116,7 +116,7 @@ def plot_flux(data_new, data_ref, cenwave):
     ax.set_xlabel('wavelength (Å)')
     ax.legend()
 
-    # PLOT 2 - RESIDUALS OF THE PLOT ABOVE
+    # PLOT 2 - RESIDUALS OF THE TWO VISITS
     model_y_new  = np.array(np.interp(wl_new, wave, model))
     residual_new = (flux_new - model_y_new) / model_y_new
 
