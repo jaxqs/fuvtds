@@ -1,5 +1,5 @@
 from data_models import get_new_data
-from func_version2 import plot_flux, plot_net
+from ONEfunc import plot_flux, plot_net
 from matplotlib.backends.backend_pdf import PdfPages
 
 if __name__ == "__main__":
