@@ -122,6 +122,7 @@ if __name__ == "__main__":
         ax = fig.add_subplot(gs[0,:-1])
         ax.scatter(wl, flux, marker ='o', color='C1', label='new', edgecolor='black')
         ax.semilogy(wave, model, color='red', label='model')
+        ax.set_title(f"{hdr0['opt_elem']}/{hdr0['cenwave']}/{hdr0['segment']}")
         ax.set_xlim(wl[0]-200, wl[-1]+200)
         ax.set_ylabel('flux')
         ax.set_xlabel('wavelength (Å)')
