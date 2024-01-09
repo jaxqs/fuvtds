@@ -69,25 +69,47 @@ def select_model(target, x):
 if __name__ == "__main__":
     # change these as needed
     LP = 'LP6'
-    PID = '16830'
+    PID = '17249'
 
     # the directory where the data is stored
-    data_dir = glob.glob('/grp/hst/cos2/new_TDSTAB_postgeo/DATA/calibrated/'+LP+'/'+PID+'/*_x1d.fits')
+    data_dir = glob.glob('/grp/hst/cos2/new_TDSTAB_postgeo/DATA/calibrated/'+LP+'/'+PID+'/*x1d.fits')
 
     for file in data_dir:
         hdr0 = fits.getheader(file, 0)
         data = fits.getdata(file, 1)
 
-        flux, edges, _ = binned(
-            hdr0['cenwave'],
-            hdr0['segment'],
-            data['wavelength'],
-            data['flux'],
-            data['DQ_WGT']
+        if hdr0['SEGMENT'] == 'BOTH':
+            flux_a, edges_a, _ = binned(
+                hdr0['cenwave'],
+                'FUVA',
+                data['wavelength'][0],
+                data['flux'][0],
+                data['DQ_WGT'][0]
             )
-        wl = edges[:-1]+np.diff(edges)/2
+            wl_a = edges_a[:-1]+np.diff(edges_a)/2
 
-        wave, model = select_model(hdr0['TARGNAME'], data['WAVELENGTH'][0])
+            flux_b, edges_b, _ = binned(
+                hdr0['cenwave'],
+                'FUVB',
+                data['wavelength'][1],
+                data['flux'][1],
+                data['DQ_WGT'][1]
+            )
+            wl_b = edges_b[:-1]+np.diff(edges_b)/2
+
+            flux, wl = np.concatenate(flux_a, flux_b), np.concatenate(wl_a, wl_b)
+            wave, model = select_model(hdr0['TARGNAME'], 
+                                       np.concatenate(data['wavelength'][0], data['wavelength'][1]))
+        else:
+            flux, edges, _ = binned(
+                hdr0['cenwave'],
+                hdr0['segment'],
+                data['wavelength'],
+                data['flux'],
+                data['DQ_WGT']
+                )
+            wl = edges[:-1]+np.diff(edges)/2
+            wave, model = select_model(hdr0['TARGNAME'], data['WAVELENGTH'][0])
 
         fig = plt.figure(tight_layout=True)
         gs  = gridspec.GridSpec(1,2)
