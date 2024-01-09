@@ -6,6 +6,7 @@ import synphot as syn
 import matplotlib.gridspec as gridspec
 import os
 from scipy.stats import binned_statistic
+from matplotlib.backends.backend_pdf import PdfPages
 
 def binned(cenwave, segment, x, y, wgt): 
 
@@ -52,8 +53,6 @@ def binned(cenwave, segment, x, y, wgt):
     return(s, edges, str(cenwaves[str(cenwave)][segment][2]))
 
 def select_model(target, x):
-    if target =='WAVE':
-        return
     targs = {
         'GD71': 'gd71_mod_011.fits',
         'WD0308-565': 'wd0308_565_mod_006.fits'
@@ -74,9 +73,14 @@ if __name__ == "__main__":
     # the directory where the data is stored
     data_dir = glob.glob('/grp/hst/cos2/new_TDSTAB_postgeo/DATA/calibrated/'+LP+'/'+PID+'/*x1d.fits')
 
+    pdf = PdfPages(f'output/{LP}_{PID}_new_tdstab.pdf')
+
     for file in data_dir:
         hdr0 = fits.getheader(file, 0)
         data = fits.getdata(file, 1)
+
+        if ((hdr0['targname'] == 'WAVE') | (len(data['wavelength']) == 0)):
+            continue
 
         if hdr0['SEGMENT'] == 'BOTH':
             flux_a, edges_a, _ = binned(
@@ -97,9 +101,9 @@ if __name__ == "__main__":
             )
             wl_b = edges_b[:-1]+np.diff(edges_b)/2
 
-            flux, wl = np.concatenate(flux_a, flux_b), np.concatenate(wl_a, wl_b)
-            wave, model = select_model(hdr0['TARGNAME'], 
-                                       np.concatenate(data['wavelength'][0], data['wavelength'][1]))
+            flux, wl = np.concatenate((flux_a, flux_b)), np.concatenate((wl_a, wl_b))
+            wavelength =  np.concatenate((data['wavelength'][0], data['wavelength'][1]))
+            wave, model = select_model(hdr0['TARGNAME'], wavelength)
         else:
             flux, edges, _ = binned(
                 hdr0['cenwave'],
@@ -112,16 +116,34 @@ if __name__ == "__main__":
             wave, model = select_model(hdr0['TARGNAME'], data['WAVELENGTH'][0])
 
         fig = plt.figure(tight_layout=True)
-        gs  = gridspec.GridSpec(1,2)
+        gs  = gridspec.GridSpec(2,4)
 
         #plot 1 - binned scatter
         ax = fig.add_subplot(gs[0,:-1])
-        ax.semilogy(wl, flux, ls ='', marker ='o', color='C1', label='new')
-        ax.semilogy(wave, model, color='black', label='model')
-        
+        ax.scatter(wl, flux, marker ='o', color='C1', label='new', edgecolor='black')
+        ax.semilogy(wave, model, color='red', label='model')
+        ax.set_xlim(wl[0]-200, wl[-1]+200)
+        ax.set_ylabel('flux')
+        ax.set_xlabel('wavelength (Å)')
+        ax.legend()
 
-        # plot 2 - histogram
-        ax = fig.add_subplot(gs[0:,-1])
-        ax.plot(wave, model, color='black')
+        # plot 2 - residuals
+        model_y  = np.array(np.interp(wl, wave, model))
+        residual = (flux - model_y) / model_y
 
-        plt.show()
+        ax = fig.add_subplot(gs[1,:-1])
+        ax.scatter(wl, residual, marker='v', c='r', label='Residual')
+        ax.hlines(0, min(wave), max(wave), ls=':', color='k')
+        ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
+        ax.set_ylim(-0.20, 0.20)
+        ax.set_xlim(wl[0]-200, wl[-1]+200)
+        ax.set_ylabel('data / model - 1')
+        ax.set_xlabel('wavelength (Å)')
+        ax.legend()
+
+        # plot 3 - histogram
+        ax = fig.add_subplot(gs[:,3])
+        ax.hist(residual,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
+
+        pdf.savefig()
+    pdf.close()
