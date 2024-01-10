@@ -15,7 +15,7 @@ def organize(data):
     diction = pd.DataFrame(diction)
     return(diction)
 
-def binned(cenwave, segment, x, y, wgt): 
+def binned(cenwave, segment, x, y): 
 
     # cenwaves --> dictionary
     # 'cenwave': {SEGMENT_A, SEGMENT_B}
@@ -45,18 +45,12 @@ def binned(cenwave, segment, x, y, wgt):
                           (x <= cenwaves[str(cenwave)][segment][1]))
     
     # summation
-    s, edges, _ = binned_statistic(x[x_index], y[x_index], statistic = 'sum', 
+    s, edges, _ = binned_statistic(x[x_index], y[x_index], statistic = 'mean', 
                                    bins = (cenwaves[str(cenwave)][segment][1] - 
                                            cenwaves[str(cenwave)][segment][0]) / 
                                            cenwaves[str(cenwave)][segment][2])
-    swgt, _ , _ = binned_statistic(x[x_index], wgt[x_index], statistic = 'sum', 
-                                   bins = (cenwaves[str(cenwave)][segment][1] - 
-                                           cenwaves[str(cenwave)][segment][0]) /
-                                           cenwaves[str(cenwave)][segment][2])
-    
-    # weighted average
-    s = s / swgt
 
+    edges = edges[:-1]+np.diff(edges)/2
     return(s, edges, str(cenwaves[str(cenwave)][segment][2]))
 
 def select_model(target, x):
@@ -73,24 +67,19 @@ def select_model(target, x):
     return (wave, model)
 
 def plot_flux(data_new, data_ref, cenwave):
-    flux_new, edges_new, bin_size_new = binned(
+    flux_new, wl_new, bin_size_new = binned(
         cenwave,
         data_new['SEGMENT'],
-        data_new['WAVELENGTH'][0],
-        data_new['FLUX'][0],
-        data_new['DQ_WGT'][0]
+        data_new['WAVELENGTH'][0][data_new['DQ_WGT'][0]!=0],
+        data_new['FLUX'][0][data_new['DQ_WGT'][0]!=0]
     )
 
-    flux_ref, edges_ref, _ = binned(
+    flux_ref, wl_ref, _ = binned(
         cenwave,
         data_ref['SEGMENT'],
-        data_ref['WAVELENGTH'][0],
-        data_ref['FLUX'][0],
-        data_ref['DQ_WGT'][0]
+        data_ref['WAVELENGTH'][0][data_ref['DQ_WGT'][0]!=0],
+        data_ref['FLUX'][0][data_ref['DQ_WGT'][0]!=0]
     )
-
-    wl_new = edges_new[:-1]+np.diff(edges_new)/2
-    wl_ref = edges_ref[:-1]+np.diff(edges_ref)/2
 
     wave, model = select_model(data_new['TARGNAME'], data_new['WAVELENGTH'][0])
 
@@ -104,12 +93,8 @@ def plot_flux(data_new, data_ref, cenwave):
     ax.scatter(wl_new, (flux_new - flux_ref) / flux_ref, marker='v', c='g', label='Flux Difference')
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
     ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
-    ax.set_title(data_new['OPT_ELEM'] + 
-                 '/' + str(cenwave) 
-                 + '/' + str(data_new['SEGMENT'])
-                 + ' ' + data_new['TARGNAME'] + ' ' + bin_size_new
-                 +'Å-bin ' + str(data_ref['DATE']) + ' ; '
-                 + str(data_new['DATE']))
+    ax.set_title(f"{data_new['OPT_ELEM']}/{data_new['CENWAVE']}/{data_new['SEGMENT']}\
+                 {data_new['TARGNAME']} {bin_size_new}Å-bin {data_new['DATE']}")
     ax.set_ylim(-0.06,0.06)
     ax.set_xlim(data_new['WAVELENGTH'][0][0]-5, data_new['WAVELENGTH'][0][-1]+5)
     ax.set_ylabel('(Flux_New - Flux_Ref) / Flux_Ref')

@@ -5,7 +5,7 @@ import matplotlib.gridspec as gridspec
 from scipy.stats import binned_statistic
 import os
 
-def binned(cenwave, segment, x, y, wgt): 
+def binned(cenwave, segment, x, y): 
 
     # cenwaves --> dictionary
     # 'cenwave': {SEGMENT_A, SEGMENT_B}
@@ -35,18 +35,13 @@ def binned(cenwave, segment, x, y, wgt):
                           (x <= cenwaves[str(cenwave)][segment][1]))
     
     # summation
-    s, edges, _ = binned_statistic(x[x_index], y[x_index], statistic = 'sum', 
+    s, edges, _ = binned_statistic(x[x_index], y[x_index], statistic = 'mean', 
                                    bins = (cenwaves[str(cenwave)][segment][1] - 
                                            cenwaves[str(cenwave)][segment][0]) / 
                                            cenwaves[str(cenwave)][segment][2])
-    swgt, _ , _ = binned_statistic(x[x_index], wgt[x_index], statistic = 'sum', 
-                                   bins = (cenwaves[str(cenwave)][segment][1] - 
-                                           cenwaves[str(cenwave)][segment][0]) /
-                                           cenwaves[str(cenwave)][segment][2])
     
-    # weighted average
-    s = s / swgt
 
+    edges = edges[:-1]+np.diff(edges)/2
     return(s, edges, str(cenwaves[str(cenwave)][segment][2]))
 
 def select_model(target, x):
@@ -66,15 +61,12 @@ def plot_flux(data):
     if data['TARGNAME'] == 'WAVE':
         return
     
-    flux, edges, bin_size = binned(
+    flux, wl, bin_size = binned(
         data['CENWAVE'],
         data['SEGMENT'],
-        data['WAVELENGTH'][0],
-        data['FLUX'][0],
-        data['DQ_WGT'][0]
+        data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0],
+        data['FLUX'][0][data['DQ_WGT'][0]!=0],
     )
-
-    wl = edges[:-1]+np.diff(edges)/2
 
     wave, model = select_model(data['TARGNAME'], data['WAVELENGTH'][0])
 
@@ -87,11 +79,8 @@ def plot_flux(data):
     ax = fig.add_subplot(gs[0,:])
     ax.scatter(wl, flux, marker='v', c='r', label='Observed')
     ax.plot(wave, model, color='blue', label='Model')
-    ax.set_title(str(data['OPT_ELEM']) + 
-                 '/' + str(data['CENWAVE']) 
-                 + '/' + str(data['SEGMENT'])
-                 + ' ' + data['TARGNAME'] + ' ' + bin_size
-                 +'Å-bin ' + str(data['DATE']))
+    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{data['SEGMENT']}\
+                 {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
     ax.set_xlim(data['WAVELENGTH'][0][0]-5, data['WAVELENGTH'][0][-1]+5)
     ax.set_ylabel('flux')
     ax.set_xlabel('wavelength (Å)')
@@ -118,21 +107,18 @@ def plot_flux(data):
 def plot_net(data):
     if data['TARGNAME'] == 'WAVE':
         return
-    net, edges, bin_size = binned(
+    net, wl, bin_size = binned(
         data['CENWAVE'],
         data['SEGMENT'],
-        data['WAVELENGTH'][0],
-        data['NET'][0],
-        data['DQ_WGT'][0]
+        data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0],
+        data['NET'][0][data['DQ_WGT'][0]!=0]
     )
     bkg, _, _ = binned(
         data['CENWAVE'],
         data['SEGMENT'],
-        data['WAVELENGTH'][0],
-        data['BACKGROUND'][0],
-        data['DQ_WGT'][0]
+        data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0],
+        data['BACKGROUND'][0][data['DQ_WGT'][0]!=0],
     )
-    wl = edges[:-1]+np.diff(edges)/2
 
 
 # PLOTS BUNCH 2
@@ -145,11 +131,8 @@ def plot_net(data):
     ax.scatter(wl, bkg, marker='v', color='blue', label=' Background')
     ax.set_ylabel('Net counts')
     ax.set_xlabel('Wavelength (Å)')
-    ax.set_title(str(data['OPT_ELEM']) + 
-                 '/' + str(data['CENWAVE']) 
-                 + '/' + str(data['SEGMENT'])
-                 + ' ' + data['TARGNAME'] + ' ' + bin_size
-                 +'Å-bin ' + str(data['DATE']))
+    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{data['SEGMENT']}\
+                  {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
     ax.legend()
 
     # PLOT 2 - BACKGROUND
