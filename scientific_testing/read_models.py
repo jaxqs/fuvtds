@@ -43,13 +43,9 @@ def binned(cenwave, segment, x, y):
                                            cenwaves[str(cenwave)][segment][0]) / 
                                            cenwaves[str(cenwave)][segment][2])
 
-    #std
-    std, _, _ = binned_statistic(x[x_index], y[x_index], statistic = 'std', 
-                                   bins = (cenwaves[str(cenwave)][segment][1] - 
-                                           cenwaves[str(cenwave)][segment][0]) / 
-                                           cenwaves[str(cenwave)][segment][2])
-
-    return(s, edges, std, str(cenwaves[str(cenwave)][segment][2]))
+    edges = edges[:-1]+np.diff(edges)/2
+    
+    return(s, edges, str(cenwaves[str(cenwave)][segment][2]))
 
 def select_model(target, x):
     targs = {
@@ -96,35 +92,31 @@ if __name__ == "__main__":
             continue
 
         if hdr0['SEGMENT'] == 'BOTH':
-            flux_a, edges_a, std_a, binsize_a = binned(
+            flux_a, wl_a, binsize_a = binned(
                 hdr0['cenwave'],
                 'FUVA',
                 data['wavelength'][0][data['dq_wgt'][0] != 0],
                 data['flux'][0][data['dq_wgt'][0] != 0]
             )
-            wl_a = edges_a[:-1]+np.diff(edges_a)/2
 
-            flux_b, edges_b, std_b, binsize_b = binned(
+            flux_b, wl_b, binsize_b = binned(
                 hdr0['cenwave'],
                 'FUVB',
                 data['wavelength'][1][data['dq_wgt'][1] != 0],
                 data['flux'][1][data['dq_wgt'][1] != 0]
             )
-            wl_b = edges_b[:-1]+np.diff(edges_b)/2
 
             flux, wl = np.concatenate((flux_a, flux_b)), np.concatenate((wl_a, wl_b))
-            std = np.concatenate((std_a, std_b))
             binsize = binsize_a
 
             wave, model = select_model(hdr0['TARGNAME'], wl)
         else:
-            flux, edges, std, binsize = binned(
+            flux, wl, binsize = binned(
                 hdr0['cenwave'],
                 hdr0['segment'],
                 data['wavelength'][data['dq_wgt'] != 0],
                 data['flux'][data['dq_wgt'] != 0]
                 )
-            wl = edges[:-1]+np.diff(edges)/2
             wave, model = select_model(hdr0['TARGNAME'], wl)
 
         fig = plt.figure(tight_layout=True)
@@ -153,6 +145,8 @@ if __name__ == "__main__":
         ax.scatter(wl, residual, marker='o', c='lightblue', edgecolor='black', label='Residual')
         ax.hlines(0, min(wave), max(wave), ls=':', color='k')
         ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
+        ax.text(0.55, 0.03, f"mean {np.round(np.mean(residual), 3)}, std {np.round(np.std(residual), 3)}",
+                fontsize=10, color='tab:blue', horizontalalignment='left', verticalalignment='bottom', transform=ax.transAxes)
         ax.set_ylim(-0.20, 0.20)
         ax.set_xlim(wave[0]+75, wave[-1]-75)
         ax.set_ylabel('data / model - 1')
