@@ -73,7 +73,55 @@ def airglow(grating, cenwave, binsize):
     for a in airglow_bins:
          airglow.append(np.array([a-binsize/2., a+binsize/2.]))
     return(airglow)
+
+def sep_segs(segment, hdr0, data, num = None):
+    flux, wl, binsize = binned(
+        hdr0['cenwave'],
+        segment,
+        data['wavelength'][num][data['dq_wgt'][num] != 0],
+        data['flux'][num][data['dq_wgt'][num] != 0]
+    )
     
+    wave, model = select_model(hdr0['TARGNAME'], wl)
+
+    fig = plt.figure(tight_layout=True)
+    gs  = gridspec.GridSpec(2,4)
+
+    #plot 1 - binned scatter
+    ax = fig.add_subplot(gs[0,:-1])
+    ax.scatter(wl, flux, marker ='o', color='lightblue', label='Binned TDSTAB binned', edgecolor='black')
+    ax.semilogy(wave, model, color='red', label='model')
+
+    airglow_bins = airglow(hdr0['opt_elem'], hdr0['cenwave'], float(binsize))
+    for a in airglow_bins:
+        ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
+
+    ax.set_title(f"{hdr0['opt_elem']}/{hdr0['cenwave']}/{segment}")
+    ax.set_xlim(wave[0]+75, wave[-1]-75)
+    ax.set_ylabel('flux')
+    ax.set_xlabel('wavelength (Å)')
+    ax.legend()
+
+    # plot 2 - residuals
+    model_y  = np.array(np.interp(wl, wave, model))
+    residual = (flux - model_y) / model_y
+
+    ax = fig.add_subplot(gs[1,:-1])
+    ax.scatter(wl, residual, marker='o', c='lightblue', edgecolor='black', label='Residual')
+    ax.hlines(0, min(wave), max(wave), ls=':', color='k')
+    ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
+    ax.text(0.55, 0.03, f"mean {np.round(np.mean(residual), 3)}, std {np.round(np.std(residual), 3)}",
+            fontsize=10, color='tab:blue', horizontalalignment='left', verticalalignment='bottom', transform=ax.transAxes)
+    ax.set_ylim(-0.20, 0.20)
+    ax.set_xlim(wave[0]+75, wave[-1]-75)
+    ax.set_ylabel('data / model - 1')
+    ax.set_xlabel('wavelength (Å)')
+    ax.legend()
+
+    # plot 3 - histogram
+    ax = fig.add_subplot(gs[:,3])
+    ax.hist(residual,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
+
 if __name__ == "__main__":
     # change these as needed
     LP = 'LP6'
@@ -92,70 +140,11 @@ if __name__ == "__main__":
             continue
 
         if hdr0['SEGMENT'] == 'BOTH':
-            flux_a, wl_a, binsize_a = binned(
-                hdr0['cenwave'],
-                'FUVA',
-                data['wavelength'][0][data['dq_wgt'][0] != 0],
-                data['flux'][0][data['dq_wgt'][0] != 0]
-            )
-
-            flux_b, wl_b, binsize_b = binned(
-                hdr0['cenwave'],
-                'FUVB',
-                data['wavelength'][1][data['dq_wgt'][1] != 0],
-                data['flux'][1][data['dq_wgt'][1] != 0]
-            )
-
-            flux, wl = np.concatenate((flux_a, flux_b)), np.concatenate((wl_a, wl_b))
-            binsize = binsize_a
-
-            wave, model = select_model(hdr0['TARGNAME'], wl)
+            sep_segs('FUVA', hdr0, data, 0)
+            pdf.savefig()
+            sep_segs('FUVB', hdr0, data, 1)
+            pdf.savefig()
         else:
-            flux, wl, binsize = binned(
-                hdr0['cenwave'],
-                hdr0['segment'],
-                data['wavelength'][data['dq_wgt'] != 0],
-                data['flux'][data['dq_wgt'] != 0]
-                )
-            wave, model = select_model(hdr0['TARGNAME'], wl)
-
-        fig = plt.figure(tight_layout=True)
-        gs  = gridspec.GridSpec(2,4)
-
-        #plot 1 - binned scatter
-        ax = fig.add_subplot(gs[0,:-1])
-        ax.scatter(wl, flux, marker ='o', color='lightblue', label='Binned TDSTAB binned', edgecolor='black')
-        ax.semilogy(wave, model, color='red', label='model')
-
-        airglow_bins = airglow(hdr0['opt_elem'], hdr0['cenwave'], float(binsize))
-        for a in airglow_bins:
-            ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
-
-        ax.set_title(f"{hdr0['opt_elem']}/{hdr0['cenwave']}/{hdr0['segment']}")
-        ax.set_xlim(wave[0]+75, wave[-1]-75)
-        ax.set_ylabel('flux')
-        ax.set_xlabel('wavelength (Å)')
-        ax.legend()
-
-        # plot 2 - residuals
-        model_y  = np.array(np.interp(wl, wave, model))
-        residual = (flux - model_y) / model_y
-
-        ax = fig.add_subplot(gs[1,:-1])
-        ax.scatter(wl, residual, marker='o', c='lightblue', edgecolor='black', label='Residual')
-        ax.hlines(0, min(wave), max(wave), ls=':', color='k')
-        ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
-        ax.text(0.55, 0.03, f"mean {np.round(np.mean(residual), 3)}, std {np.round(np.std(residual), 3)}",
-                fontsize=10, color='tab:blue', horizontalalignment='left', verticalalignment='bottom', transform=ax.transAxes)
-        ax.set_ylim(-0.20, 0.20)
-        ax.set_xlim(wave[0]+75, wave[-1]-75)
-        ax.set_ylabel('data / model - 1')
-        ax.set_xlabel('wavelength (Å)')
-        ax.legend()
-
-        # plot 3 - histogram
-        ax = fig.add_subplot(gs[:,3])
-        ax.hist(residual,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
-
-        pdf.savefig()
+            sep_segs(hdr0['SEGMENT'], hdr0, data)
+            pdf.savefig()
     pdf.close()
