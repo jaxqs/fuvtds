@@ -95,12 +95,15 @@ def sep_segs(segment, hdr0, data, num = None):
     # hdr0   : the header of the fits file, necessary to get TARGNAME and other values from
     # data   : the data of the fits file, necessary to do the analysis
     # num    : OPTIONAL, if the segment is listed as BOTH, num aids in seperating by segment
-    flux_5, wl_5, flux_1, wl_1, binsize = binned(
-        hdr0['cenwave'],
-        segment,
-        data['wavelength'][num][data['dq_wgt'][num] != 0],
-        data['flux'][num][data['dq_wgt'][num] != 0]
-    )
+    try:
+        flux_5, wl_5, flux_1, wl_1, binsize = binned(
+            hdr0['cenwave'],
+            segment,
+            data['wavelength'][num][data['dq_wgt'][num] != 0],
+            data['flux'][num][data['dq_wgt'][num] != 0]
+        )
+    except:
+        return
     
     # wavelength and model spectra of the given target that was observed
     wave, model = select_model(hdr0['TARGNAME'], wl_5)
@@ -149,6 +152,7 @@ def sep_segs(segment, hdr0, data, num = None):
     # plot 3 - histogram of the residuals
     ax = fig.add_subplot(gs[:,3])
     ax.hist(residual_5,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
+    pdf.savefig()
 
 def plot_maker(file):
     # file: the fits file, will be opened and analysised 
@@ -162,17 +166,15 @@ def plot_maker(file):
     #if SEGMENT is set to BOTH, then the except statement will seperate the two
     try:
         sep_segs(hdr0['SEGMENT'], hdr0, data)
-        pdf.savefig()
     except:
         segments = ['FUVA', 'FUVB']
         for i, s in enumerate(segments):
             sep_segs(s, hdr0, data, i)
-            pdf.savefig()
 
 if __name__ == "__main__":
     # change these as needed
     LP = 'LP6'
-    PID = '17249'
+    PID = '17328'
 
     # the directory where the data is stored
     data_dir = glob.glob('/grp/hst/cos2/new_TDSTAB_postgeo/DATA/calibrated/'+LP+'/'+PID+'/*x1d.fits')
