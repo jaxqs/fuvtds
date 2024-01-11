@@ -48,19 +48,29 @@ def binned(cenwave, segment, x, y):
     return(s, edges, str(cenwaves[str(cenwave)][segment][2]))
 
 def select_model(target, x):
+    #target : the target the data has observed to
+    #x      : the wavelength array
+
+    # this dic can become more sophisticate for LPs once the ref files changes for them (if they do)
     targs = {
         'GD71': 'gd71_mod_011.fits',
         'WD0308-565': 'wd0308_565_mod_006.fits'
     }
+
+    # grab the relavent file from calspec
     model_spec = syn.SourceSpectrum.from_file(os.path.join(
         os.environ['PYSYN_CDBS'], 'calspec', targs[target]))
     
+    # the wavelength array the spectrum derived will be made from
     wave = np.arange(min(x)-100, max(x)+100, 0.1)
     model = model_spec(wave, flux_unit=syn.units.FLAM)
 
     return (wave, model)
 
 def airglow(grating, cenwave, binsize):
+    # grating: the grating that was observed. G140L have different airglow bins than the rest
+    # cenwave: the cenwave that was observed. G140L/800 has diff airglow bins than the rest
+    # binsize: Angstroms, the bin size width in angstroms to make the airglow bins
     if grating == 'G140L':
         if cenwave == 800:
             airglow_bins  = np.array([1205, 1225, 1305])
@@ -75,6 +85,10 @@ def airglow(grating, cenwave, binsize):
     return(airglow)
 
 def sep_segs(segment, hdr0, data, num = None):
+    # segment: the segment the data was observed in. should be FUVA or FUVB
+    # hdr0   : the header of the fits file, necessary to get TARGNAME and other values from
+    # data   : the data of the fits file, necessary to do the analysis
+    # num    : OPTIONAL, if the segment is listed as BOTH, num aids in seperating by segment
     flux, wl, binsize = binned(
         hdr0['cenwave'],
         segment,
@@ -82,6 +96,7 @@ def sep_segs(segment, hdr0, data, num = None):
         data['flux'][num][data['dq_wgt'][num] != 0]
     )
     
+    # wavelength and model spectra of the given target that was observed
     wave, model = select_model(hdr0['TARGNAME'], wl)
 
     fig = plt.figure(tight_layout=True)
@@ -92,6 +107,7 @@ def sep_segs(segment, hdr0, data, num = None):
     ax.scatter(wl, flux, marker ='o', color='lightblue', label='Binned TDSTAB binned', edgecolor='black')
     ax.semilogy(wave, model, color='red', label='model')
 
+    # establish airglow regions in the plot
     airglow_bins = airglow(hdr0['opt_elem'], hdr0['cenwave'], float(binsize))
     for a in airglow_bins:
         ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
@@ -118,16 +134,20 @@ def sep_segs(segment, hdr0, data, num = None):
     ax.set_xlabel('wavelength (Å)')
     ax.legend()
 
-    # plot 3 - histogram
+    # plot 3 - histogram of the residuals
     ax = fig.add_subplot(gs[:,3])
     ax.hist(residual,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
 
 def plot_maker(file):
+    # file: the fits file, will be opened and analysised 
     hdr0 = fits.getheader(file, 0)
     data = fits.getdata(file, 1)
 
     if (hdr0['targname'] == 'WAVE') | (len(data['wavelength']) == 0):
         return
+    
+    # check to see if SEGMENT is set as either FUVA or FUVB and if so, proceed as usual
+    #if SEGMENT is set to BOTH, then the except statement will seperate the two
     try:
         sep_segs(hdr0['SEGMENT'], hdr0, data)
         pdf.savefig()
@@ -145,7 +165,8 @@ if __name__ == "__main__":
     # the directory where the data is stored
     data_dir = glob.glob('/grp/hst/cos2/new_TDSTAB_postgeo/DATA/calibrated/'+LP+'/'+PID+'/*x1d.fits')
 
-    pdf = PdfPages(f'output/{LP}_{PID}_new_tdstab.pdf')
+    # intiate where plots will be stored
+    pdf = PdfPages(f'output/{LP}_{PID}_new_reffiles.pdf')
 
     for file in data_dir:
         plot_maker(file)
