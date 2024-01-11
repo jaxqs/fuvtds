@@ -122,6 +122,21 @@ def sep_segs(segment, hdr0, data, num = None):
     ax = fig.add_subplot(gs[:,3])
     ax.hist(residual,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
 
+def plot_maker(file):
+    hdr0 = fits.getheader(file, 0)
+    data = fits.getdata(file, 1)
+
+    if (hdr0['targname'] == 'WAVE') | (len(data['wavelength']) == 0):
+        return
+    try:
+        sep_segs(hdr0['SEGMENT'], hdr0, data)
+        pdf.savefig()
+    except:
+        segments = ['FUVA', 'FUVB']
+        for i, s in enumerate(segments):
+            sep_segs(s, hdr0, data, i)
+            pdf.savefig()
+
 if __name__ == "__main__":
     # change these as needed
     LP = 'LP6'
@@ -133,18 +148,5 @@ if __name__ == "__main__":
     pdf = PdfPages(f'output/{LP}_{PID}_new_tdstab.pdf')
 
     for file in data_dir:
-        hdr0 = fits.getheader(file, 0)
-        data = fits.getdata(file, 1)
-
-        if ((hdr0['targname'] == 'WAVE') | (len(data['wavelength']) == 0)):
-            continue
-
-        if hdr0['SEGMENT'] == 'BOTH':
-            sep_segs('FUVA', hdr0, data, 0)
-            pdf.savefig()
-            sep_segs('FUVB', hdr0, data, 1)
-            pdf.savefig()
-        else:
-            sep_segs(hdr0['SEGMENT'], hdr0, data)
-            pdf.savefig()
+        plot_maker(file)
     pdf.close()
