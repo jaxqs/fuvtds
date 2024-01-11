@@ -1,3 +1,22 @@
+"""
+READ_MODELS.PY
+AUTHOR: Jacqueline Hernandez
+DATE: Jan 2024
+LIVE LOCATION: https://github.com/jaxqs/fuvtds
+
+PURPOSE:
+    The purpose of the following code is to analyze the x1d files of a given Program ID (PID)
+and given Lifetime Position (LP). This is done by taking the x1d files and evaluating based
+on segment and cenwave to then bin the flux and wavelength arrays of each file in both (usually)
+5-Angstrom bins and 1-Angstrom bins. These bins are compared to a model spectra found in CALSPEC
+and the mean and standard deviation are noted on the plot based on the residuals.
+
+    This code produces a 3-panel plot. The first plot is Flux vs Wavelength with both flux and
+wavelength divided into bins and then compared to a model spectra of the target of the observation. 
+The second plot is Residuals vs Wavelength for those same bins from that observation to 
+model spectra comparison. The third plot is a histogram of the residuals from the second.
+"""
+
 import numpy as np 
 import matplotlib.pyplot as plt
 from astropy.io import fits
