@@ -15,37 +15,43 @@ def binned(cenwave, segment, x, y):
     # 'segment': [lower wavelength limit, upper wavelength limit, Angstrom-bin]
     cenwaves = {
         # G160M
-        '1533': {'FUVA':[1535.0, 1705.0, 5], 'FUVB': [1345.0, 1515.0, 5]},
-        '1577': {'FUVA':[1575.0, 1750.0, 5], 'FUVB': [1385.0, 1560.0, 5]},
-        '1611': {'FUVA':[1610.0, 1785.0, 5], 'FUVB': [1420.0, 1590.0, 5]},
-        '1623': {'FUVA':[1625.0, 1795.0, 5], 'FUVB': [1435.0, 1605.0, 5]},
+        '1533': {'FUVA':[1535.0, 1705.0, 5, 1], 'FUVB': [1345.0, 1515.0, 5, 1]},
+        '1577': {'FUVA':[1575.0, 1750.0, 5, 1], 'FUVB': [1385.0, 1560.0, 5, 1]},
+        '1611': {'FUVA':[1610.0, 1785.0, 5, 1], 'FUVB': [1420.0, 1590.0, 5, 1]},
+        '1623': {'FUVA':[1625.0, 1795.0, 5, 1], 'FUVB': [1435.0, 1605.0, 5, 1]},
         
         # G130M
-        '1222': {'FUVA':[1225.0, 1360.0, 5], 'FUVB': [1085.0, 1205.0, 20]},
-        '1055': {'FUVA':[1065.0, 1185.0, 20],'FUVB': [910.0, 1030.0, 60]},
-        '1096': {'FUVB':[950.0, 1070.0, 20]},
-        '1291': {'FUVA':[1290.0, 1430.0, 5], 'FUVB': [1135.0, 1275.0, 5]},
-        '1327': {'FUVA':[1325.0, 1470.0, 5], 'FUVB': [1170.0, 1315.0, 5]},
+        '1222': {'FUVA':[1225.0, 1360.0, 5, 1], 'FUVB': [1085.0, 1205.0, 20, 1]},
+        '1055': {'FUVA':[1065.0, 1185.0, 20, 1],'FUVB': [910.0, 1030.0, 60, 1]},
+        '1096': {'FUVB':[950.0, 1070.0, 20, 1]},
+        '1291': {'FUVA':[1290.0, 1430.0, 5, 1], 'FUVB': [1135.0, 1275.0, 5, 1]},
+        '1327': {'FUVA':[1325.0, 1470.0, 5, 1], 'FUVB': [1170.0, 1315.0, 5, 1]},
 
         # G140L 
-        '800' : {'FUVA':[920.0, 1800.0, 20]},
-        '1105': {'FUVA':[1140.0, 1800.0, 20]},
-        '1280': {'FUVA':[1280.0, 1800.0, 20],'FUVB': [1100.0, 1120.0, 20]}
+        '800' : {'FUVA':[920.0, 1800.0, 20, 1]},
+        '1105': {'FUVA':[1140.0, 1800.0, 20, 1]},
+        '1280': {'FUVA':[1280.0, 1800.0, 20, 1],'FUVB': [1100.0, 1120.0, 20, 1]}
         }
 
     # only grab data within the established wl ranges in the dictionary
     x_index = np.where((x >= cenwaves[str(cenwave)][segment][0]) &
                           (x <= cenwaves[str(cenwave)][segment][1]))
     
-    # summation
-    s, edges, _ = binned_statistic(x[x_index], y[x_index], statistic = 'mean', 
+    # mean - 5 Ang
+    s_5, edges_5, _ = binned_statistic(x[x_index], y[x_index], statistic = 'mean', 
                                    bins = (cenwaves[str(cenwave)][segment][1] - 
                                            cenwaves[str(cenwave)][segment][0]) / 
                                            cenwaves[str(cenwave)][segment][2])
+    # mean - 1 Ang
+    s_1, edges_1, _ = binned_statistic(x[x_index], y[x_index], statistic = 'mean', 
+                                   bins = (cenwaves[str(cenwave)][segment][1] - 
+                                           cenwaves[str(cenwave)][segment][0]) / 
+                                           cenwaves[str(cenwave)][segment][3])
 
-    edges = edges[:-1]+np.diff(edges)/2
+    edges_5 = edges_5[:-1]+np.diff(edges_5)/2
+    edges_1 = edges_1[:-1]+np.diff(edges_1)/2
     
-    return(s, edges, str(cenwaves[str(cenwave)][segment][2]))
+    return(s_5, edges_5, s_1, edges_1, str(cenwaves[str(cenwave)][segment][2]))
 
 def select_model(target, x):
     #target : the target the data has observed to
@@ -89,7 +95,7 @@ def sep_segs(segment, hdr0, data, num = None):
     # hdr0   : the header of the fits file, necessary to get TARGNAME and other values from
     # data   : the data of the fits file, necessary to do the analysis
     # num    : OPTIONAL, if the segment is listed as BOTH, num aids in seperating by segment
-    flux, wl, binsize = binned(
+    flux_5, wl_5, flux_1, wl_1, binsize = binned(
         hdr0['cenwave'],
         segment,
         data['wavelength'][num][data['dq_wgt'][num] != 0],
@@ -97,14 +103,15 @@ def sep_segs(segment, hdr0, data, num = None):
     )
     
     # wavelength and model spectra of the given target that was observed
-    wave, model = select_model(hdr0['TARGNAME'], wl)
+    wave, model = select_model(hdr0['TARGNAME'], wl_5)
 
     fig = plt.figure(tight_layout=True)
     gs  = gridspec.GridSpec(2,4)
 
     #plot 1 - binned scatter
     ax = fig.add_subplot(gs[0,:-1])
-    ax.scatter(wl, flux, marker ='o', color='lightblue', label='Binned TDSTAB binned', edgecolor='black')
+    ax.scatter(wl_1, flux_1, marker ='.', color='darkblue', label='TDSTAB',  edgecolor='black')
+    ax.scatter(wl_5, flux_5, marker ='o', color='lightblue', label='Binned TDSTAB', edgecolor='black')
     ax.semilogy(wave, model, color='red', label='model')
 
     # establish airglow regions in the plot
@@ -114,19 +121,24 @@ def sep_segs(segment, hdr0, data, num = None):
 
     ax.set_title(f"{hdr0['opt_elem']}/{hdr0['cenwave']}/{segment}")
     ax.set_xlim(wave[0]+75, wave[-1]-75)
+    ax.set_ylim(min(flux_5) - 1e-13, max(flux_5) + 1e-13)
     ax.set_ylabel('flux')
     ax.set_xlabel('wavelength (Å)')
     ax.legend()
 
     # plot 2 - residuals
-    model_y  = np.array(np.interp(wl, wave, model))
-    residual = (flux - model_y) / model_y
+    model_y_5  = np.array(np.interp(wl_5, wave, model))
+    residual_5 = (flux_5 - model_y_5) / model_y_5
+
+    model_y_1  = np.array(np.interp(wl_1, wave, model))
+    residual_1 = (flux_1 - model_y_1) / model_y_1
 
     ax = fig.add_subplot(gs[1,:-1])
-    ax.scatter(wl, residual, marker='o', c='lightblue', edgecolor='black', label='Residual')
+    ax.scatter(wl_1, residual_1, marker='.', c='darkblue', edgecolor='black', label='Residual')
+    ax.scatter(wl_5, residual_5, marker='o', c='lightblue', edgecolor='black', label='Binned Residual')
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
     ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
-    ax.text(0.55, 0.03, f"mean {np.round(np.mean(residual), 3)}, std {np.round(np.std(residual), 3)}",
+    ax.text(0.55, 0.03, f"mean {np.round(np.mean(residual_5), 3)}, std {np.round(np.std(residual_5), 3)}",
             fontsize=10, color='tab:blue', horizontalalignment='left', verticalalignment='bottom', transform=ax.transAxes)
     ax.set_ylim(-0.20, 0.20)
     ax.set_xlim(wave[0]+75, wave[-1]-75)
@@ -136,7 +148,7 @@ def sep_segs(segment, hdr0, data, num = None):
 
     # plot 3 - histogram of the residuals
     ax = fig.add_subplot(gs[:,3])
-    ax.hist(residual,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
+    ax.hist(residual_5,bins=22,range=(-0.2, 0.2),color='k',histtype='step',hatch='/')
 
 def plot_maker(file):
     # file: the fits file, will be opened and analysised 
