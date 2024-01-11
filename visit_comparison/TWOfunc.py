@@ -66,6 +66,20 @@ def select_model(target, x):
 
     return (wave, model)
 
+def airglow(grating, cenwave, binsize):
+    if grating == 'G140L':
+        if cenwave == 800:
+            airglow_bins  = np.array([1205, 1225, 1305])
+        else:
+            airglow_bins = np.array([1210, 1280, 1310])
+    else:
+        airglow_bins = np.array([1212.5, 1217.5, 1302.5, 1302.5, 1307.5, 1352.5, 1357.5])
+
+    airglow = []
+    for a in airglow_bins:
+         airglow.append(np.array([a-binsize/2., a+binsize/2.]))
+    return(airglow)
+
 def plot_flux(data_new, data_ref, cenwave):
     flux_new, wl_new, bin_size_new = binned(
         cenwave,
@@ -91,6 +105,11 @@ def plot_flux(data_new, data_ref, cenwave):
     # PLOT 1 - COMPARISON OF THE TWO VISITS
     ax = fig.add_subplot(gs[0,:])
     ax.scatter(wl_new, (flux_new - flux_ref) / flux_ref, marker='v', c='g', label='Flux Difference')
+
+    airglow_bins = airglow(data_ref['OPT_ELEM'], data_ref['CENWAVE'], float(bin_size_new))
+    for a in airglow_bins:
+        ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
+
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
     ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
     ax.set_title(f"{data_new['OPT_ELEM']}/{data_new['CENWAVE']}/{data_new['SEGMENT']}\

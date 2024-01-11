@@ -57,6 +57,20 @@ def select_model(target, x):
 
     return (wave, model)
 
+def airglow(grating, cenwave, binsize):
+    if grating == 'G140L':
+        if cenwave == 800:
+            airglow_bins  = np.array([1205, 1225, 1305])
+        else:
+            airglow_bins = np.array([1210, 1280, 1310])
+    else:
+        airglow_bins = np.array([1212.5, 1217.5, 1302.5, 1302.5, 1307.5, 1352.5, 1357.5])
+
+    airglow = []
+    for a in airglow_bins:
+         airglow.append(np.array([a-binsize/2., a+binsize/2.]))
+    return(airglow)
+
 def plot_flux(data):
     if data['TARGNAME'] == 'WAVE':
         return
@@ -79,6 +93,11 @@ def plot_flux(data):
     ax = fig.add_subplot(gs[0,:])
     ax.scatter(wl, flux, marker='v', c='r', label='Observed')
     ax.plot(wave, model, color='blue', label='Model')
+
+    airglow_bins = airglow(data['OPT_ELEM'], data['CENWAVE'], float(bin_size))
+    for a in airglow_bins:
+        ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
+
     ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{data['SEGMENT']}\
                  {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
     ax.set_xlim(data['WAVELENGTH'][0][0]-5, data['WAVELENGTH'][0][-1]+5)
