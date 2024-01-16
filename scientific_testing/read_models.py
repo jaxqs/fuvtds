@@ -17,6 +17,11 @@ The second plot is Residuals vs Wavelength for those same bins from that observa
 model spectra comparison. The third plot is a histogram of the residuals from the second.
 """
 
+"""
+THINGS TO ADD
+-- add rootname and the date when data was taken to the plots
+"""
+
 import numpy as np 
 import matplotlib.pyplot as plt
 from astropy.io import fits
