@@ -1,5 +1,4 @@
 from data_models import get_new_data
-#from TWOfunc import organize, plot_flux
 from matplotlib.backends.backend_pdf import PdfPages
 
 import numpy as np
