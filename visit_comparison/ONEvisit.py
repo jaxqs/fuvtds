@@ -75,8 +75,6 @@ def airglow(grating, cenwave, binsize):
     return(airglow)
 
 def plot_flux(data, segment, num=0):
-    if (data['TARGNAME'] == 'WAVE'):
-        return
      
     flux, wl, bin_size = binned(
         data['CENWAVE'],
@@ -116,7 +114,7 @@ def plot_flux(data, segment, num=0):
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
     ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
     ax.set_ylim(-0.20, 0.20)
-    ax.set_xlim(data['WAVELENGTH'][num][0]-5, data['WAVELENGTH'][num][-1]+5)
+    ax.set_xlim(wave[0]+75, wave[-1]-75)
     ax.set_ylabel('data / model - 1')
     ax.set_xlabel('wavelength (Å)')
     ax.legend()
@@ -167,18 +165,22 @@ def plot_net(data, segment, num=0):
     pdf.savefig()
 
 def seperate_segs(data, segment, func):
-    if segment == 'BOTH':
+    if (data['TARGNAME'] == 'WAVE'):
+        return
+    
+    try:
+        func(data, segment)
+    except:
         segments = ['FUVA', 'FUVB']
         for i, s in enumerate(segments):
-            func(data, s, i)
-    else:
-        func(data, segment)
-
+            try: 
+                func(data, s, i)
+            except: pass
 
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
     PID = '17328'
-    visit = '04'
+    visit = '3a'
 
     data = get_new_data(PID, visit)
 
