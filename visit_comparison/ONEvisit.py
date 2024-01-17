@@ -4,8 +4,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
-    PID = '17249'
-    visit = '12'
+    PID = '17328'
+    visit = '3a'
 
     data = get_new_data(PID, visit)
 
