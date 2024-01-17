@@ -72,9 +72,10 @@ def airglow(grating, cenwave, binsize):
     return(airglow)
 
 def plot_flux(data):
-    if data['TARGNAME'] == 'WAVE':
+    if (data['TARGNAME'] == 'WAVE'):
         return
     
+    print(len(data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0]))
     flux, wl, bin_size = binned(
         data['CENWAVE'],
         data['SEGMENT'],
