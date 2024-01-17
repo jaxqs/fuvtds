@@ -74,18 +74,18 @@ def airglow(grating, cenwave, binsize):
          airglow.append(np.array([a-binsize/2., a+binsize/2.]))
     return(airglow)
 
-def plot_flux(data):
+def plot_flux(data, segment, num=0):
     if (data['TARGNAME'] == 'WAVE'):
         return
      
     flux, wl, bin_size = binned(
         data['CENWAVE'],
-        data['SEGMENT'],
-        data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0],
-        data['FLUX'][0][data['DQ_WGT'][0]!=0],
+        segment,
+        data['WAVELENGTH'][num][data['DQ_WGT'][num]!=0],
+        data['FLUX'][num][data['DQ_WGT'][num]!=0],
     )
 
-    wave, model = select_model(data['TARGNAME'], data['WAVELENGTH'][0])
+    wave, model = select_model(data['TARGNAME'], data['WAVELENGTH'][num])
 
 #plots
 #PLOT BUNCH 1
@@ -101,9 +101,9 @@ def plot_flux(data):
     for a in airglow_bins:
         ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
 
-    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{data['SEGMENT']}\
+    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment}\
                  {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
-    ax.set_xlim(data['WAVELENGTH'][0][0]-5, data['WAVELENGTH'][0][-1]+5)
+    ax.set_xlim(data['WAVELENGTH'][num][0]-5, data['WAVELENGTH'][num][-1]+5)
     ax.set_ylabel('flux')
     ax.set_xlabel('wavelength (Å)')
     ax.legend()
@@ -116,7 +116,7 @@ def plot_flux(data):
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
     ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
     ax.set_ylim(-0.20, 0.20)
-    ax.set_xlim(data['WAVELENGTH'][0][0]-5, data['WAVELENGTH'][0][-1]+5)
+    ax.set_xlim(data['WAVELENGTH'][num][0]-5, data['WAVELENGTH'][num][-1]+5)
     ax.set_ylabel('data / model - 1')
     ax.set_xlabel('wavelength (Å)')
     ax.legend()
@@ -127,20 +127,20 @@ def plot_flux(data):
     pdf.savefig()
 
 
-def plot_net(data):
+def plot_net(data, segment, num=0):
     if (data['TARGNAME'] == 'WAVE'):
         return
     net, wl, bin_size = binned(
         data['CENWAVE'],
-        data['SEGMENT'],
-        data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0],
-        data['NET'][0][data['DQ_WGT'][0]!=0]
+        segment,
+        data['WAVELENGTH'][num][data['DQ_WGT'][num]!=0],
+        data['NET'][num][data['DQ_WGT'][num]!=0]
     )
     bkg, _, _ = binned(
         data['CENWAVE'],
-        data['SEGMENT'],
-        data['WAVELENGTH'][0][data['DQ_WGT'][0]!=0],
-        data['BACKGROUND'][0][data['DQ_WGT'][0]!=0],
+        segment,
+        data['WAVELENGTH'][num][data['DQ_WGT'][num]!=0],
+        data['BACKGROUND'][num][data['DQ_WGT'][num]!=0],
     )
 
 
@@ -154,7 +154,7 @@ def plot_net(data):
     ax.scatter(wl, bkg, marker='v', color='blue', label=' Background')
     ax.set_ylabel('Net counts')
     ax.set_xlabel('Wavelength (Å)')
-    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{data['SEGMENT']}\
+    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment}\
                   {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
     ax.legend()
 
@@ -166,19 +166,28 @@ def plot_net(data):
     ax.legend()
     pdf.savefig()
 
+def seperate_segs(data, segment, func):
+    if segment == 'BOTH':
+        segments = ['FUVA', 'FUVB']
+        for i, s in enumerate(segments):
+            func(data, s, i)
+    else:
+        func(data, segment)
+
+
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
-    PID = '17249'
-    visit = '11'
+    PID = '17328'
+    visit = '04'
 
     data = get_new_data(PID, visit)
 
     pdf = PdfPages(f'output/{PID}_visit{visit}_flux.pdf')
     for d in data:
-        plot_flux(d)
+        seperate_segs(d, d['SEGMENT'], plot_flux)
     pdf.close()
 
     pdf = PdfPages(f'output/{PID}_visit{visit}_net.pdf')
     for d in data:
-        plot_net(d)
+        seperate_segs(d, d['SEGMENT'], plot_net)
     pdf.close()
