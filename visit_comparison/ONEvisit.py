@@ -100,7 +100,7 @@ def plot_flux(data, segment, num=0):
         ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
 
     ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment}\
-                 {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
+                 {data['TARGNAME']} {bin_size}Å-bin {data['DATE-OBS']}")
     ax.set_xlim(data['WAVELENGTH'][num][0]-5, data['WAVELENGTH'][num][-1]+5)
     ax.set_ylabel('flux')
     ax.set_xlabel('wavelength (Å)')
@@ -153,7 +153,7 @@ def plot_net(data, segment, num=0):
     ax.set_ylabel('Net counts')
     ax.set_xlabel('Wavelength (Å)')
     ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment}\
-                  {data['TARGNAME']} {bin_size}Å-bin {data['DATE']}")
+                  {data['TARGNAME']} {bin_size}Å-bin {data['DATE-OBS']}")
     ax.legend()
 
     # PLOT 2 - BACKGROUND
