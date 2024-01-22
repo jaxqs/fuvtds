@@ -15,7 +15,8 @@ FILES_SOURCE = '/grp/hst/cos2/cosmo'
 
 def get_new_data(PID, visit=''):
     header_request = {
-            0: ['ROOTNAME', 'SEGMENT', 'CENWAVE', 'TARGNAME', 'OPT_ELEM', 'DATE']
+            0: ['ROOTNAME', 'SEGMENT', 'CENWAVE', 'TARGNAME', 'OPT_ELEM', 'LIFE_ADJ'],
+            1: ['DATE-OBS']
             }
     table_request = {
             1: ['WAVELENGTH', 'FLUX', 'NET', 'BACKGROUND', 'DQ_WGT']
