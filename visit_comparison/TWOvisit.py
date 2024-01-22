@@ -13,7 +13,7 @@ def organize(data):
     diction = {}
     for d in data:
         if d['TARGNAME'] != 'WAVE':
-            diction[d['CENWAVE']] = d
+            diction[d['CENWAVE'], d['LIFE_ADJ']] = d
 
     diction = pd.DataFrame(diction)
     return(diction)
@@ -116,7 +116,7 @@ def plot_flux(data_ref, data_new, cenwave):
     ax.hlines(0, min(wave), max(wave), ls=':', color='k')
     ax.hlines([0.05, 0.02, -0.02, -0.05],min(wave),max(wave),ls='--',color='k')
     ax.set_title(f"{data_new['OPT_ELEM']}/{data_new['CENWAVE']}/{data_new['SEGMENT']}\
-                 {data_new['TARGNAME']} {bin_size_new}Å-bin {data_ref['DATE']} ; {data_new['DATE']}")
+                 {data_new['TARGNAME']} {bin_size_new}Å-bin {data_ref['DATE-OBS']} ; {data_new['DATE-OBS']}")
     ax.set_ylim(-0.06,0.06)
     ax.set_xlim(data_new['WAVELENGTH'][0][0]-5, data_new['WAVELENGTH'][0][-1]+5)
     ax.set_ylabel('(Flux_New - Flux_Ref) / Flux_Ref')
@@ -131,8 +131,8 @@ def plot_flux(data_ref, data_new, cenwave):
     residual_ref = (flux_ref - model_y_ref) / model_y_ref
 
     ax = fig.add_subplot(gs[1,:-1])
-    ax.scatter(wl_new, residual_new, marker='o', c='blue', label=data_new['DATE'])
-    ax.scatter(wl_ref, residual_ref, marker='x', c='r', label=data_ref['DATE'])
+    ax.scatter(wl_new, residual_new, marker='o', c='blue', label=data_new['DATE-OBS'])
+    ax.scatter(wl_ref, residual_ref, marker='x', c='r', label=data_ref['DATE-OBS'])
     ax.set_ylim(-0.20, 0.20)
     ax.set_xlim(data_new['WAVELENGTH'][0][0]-5, data_new['WAVELENGTH'][0][-1]+5)
     ax.set_ylabel('data / model - 1')
@@ -159,7 +159,10 @@ if __name__ == "__main__":
     data_new = organize(data_new)
 
     pdf = PdfPages(f'output/{ref[0]}_visit{ref[1]}&{new[0]}_visit{new[1]}_comparison.pdf')
-    for c in data_new.columns:
-        plot_flux(data_ref[c], data_new[c], c)
-        pdf.savefig()
+    for c, lp in data_new.columns:
+        try:
+            plot_flux(data_ref[c, lp], data_new[c, lp], c)
+            pdf.savefig()
+        except:
+            continue
     pdf.close()
