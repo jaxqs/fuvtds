@@ -147,8 +147,8 @@ def plot_flux(data_ref, data_new, cenwave):
 
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
-    ref = ['17326', '02']
-    new = ['17328', '04']
+    ref = ['17326', '3a']
+    new = ['17326', '3b']
 
     #Grab the data from COSMO
     data_ref = get_new_data(ref[0], ref[1])
