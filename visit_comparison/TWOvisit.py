@@ -58,8 +58,8 @@ def binned(cenwave, segment, x, y):
 
 def select_model(target, x):
     targs = {
-        'GD71': 'gd71_mod_011.fits',
-        'WD0308-565': 'wd0308_565_mod_006.fits'
+        'GD71': 'gd71_mod_012.fits',
+        'WD0308-565': 'wd0308_565_mod_007.fits'
     }
     model_spec = syn.SourceSpectrum.from_file(os.path.join(
         os.environ['PYSYN_CDBS'], 'calspec', targs[target]))
