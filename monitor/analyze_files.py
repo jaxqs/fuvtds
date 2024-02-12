@@ -1,5 +1,4 @@
 from astropy.io import fits
-import numpy as np 
 import pandas as pd
 import os
 import glob
@@ -33,7 +32,7 @@ def which_files_to_run(cosmo_path, pids, pattern, csv_file):
 
     if os.path.exists(csv_file):
         in_table = pd.read_csv(csv_file)
-        paths_to_run = list(set(x1d_paths) - set(in_table.path))
+        paths_to_run = list(set(x1d_paths) - set(in_table))
 
     else:
         paths_to_run = list(x1d_paths)
@@ -54,7 +53,7 @@ def get_x1ds_data(file_path):
     exptime = hdu[1].header['exptime']
     
     # only want exposures that ran well and aren't WAVE files
-    if (exptime != 0) & (hdu[0].header['targname'] != 'WAVE'):
+    if (exptime != 0) & (hdu[0].header['targname'] != 'WAVE') & (hdu[0].header['targname'] != 'LDS749B'):
         x1d_table = pd.DataFrame(
             {'rootname': [hdu[0].header['rootname']],
             'opt_elem': [hdu[0].header['opt_elem']],
@@ -81,9 +80,9 @@ def update_inventory(new_table, csv_file):
         new_table: the x1d_file created with the new x1dfiles that are not in the csv file currently.
         csv_file: the csv_file name to update/create.
     """
+    new_table = new_table.sort_values(by=['date-obs'], ignore_index=True)
     if os.path.exists(csv_file):
-        in_table = pd.read_csv(csv_file)
-        new_table = pd.concat([in_table, new_table], ignore_index=True)
+        new_table.to_csv(csv_file, mode='w+')
     else: 
         new_table.to_csv(csv_file)
         print(f'{csv_file} was created.')
@@ -128,11 +127,8 @@ def analyze_files(cosmo_path, pid_file, pattern, csv_file):
     tables = pd.concat(tables, ignore_index=True)
 
     # update or create the csv file that will store all this information
-    update_inventory(tables, csv_file)
-
-    # read in the csv file to be used for... something! we can use this command to do smth or the other lmfao
-    csv = pd.read_csv(csv_file)
-    return (csv)
+    if len(tables) !=0:
+        update_inventory(tables, csv_file)
 
 if __name__ == "__main__":
 
@@ -142,4 +138,4 @@ if __name__ == "__main__":
     inventory = 'inventory.csv'
     pid_file = '/Users/jhernandez/Desktop/fuvtds/monitor/fuvtds_analysis_list.dat'
 
-    csv = analyze_files(datadir, pid_file, pattern, inventory)
+    analyze_files(datadir, pid_file, pattern, inventory)
