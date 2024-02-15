@@ -33,7 +33,7 @@ class FUVTDSModel(BaseDataModel):
     def get_new_data(self):
         """Set the model for what data is to be retrieved from each x1d file."""
         header_request = {
-            0: ['ROOTNAME', 'SEGMENT', 'CENWAVE', 'TARGNAME', 'OPT_ELEM', 'LIFE_ADJ'],
+            0: ['ROOTNAME', 'SEGMENT', 'CENWAVE', 'TARGNAME', 'OPT_ELEM', 'LIFE_ADJ', 'EXPTYPE'],
             1: ['DATE-OBS']
         }
         table_request = {

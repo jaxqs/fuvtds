@@ -102,7 +102,6 @@ def v2v3(slew_x: Sequence, slew_y: Sequence) -> Tuple[Union[np.ndarray, pd.Serie
 
     return v2, v3
 
-
 def get_osm_data(datamodel, detector: str) -> pd.DataFrame:
     """Query for OSM data and append any relevant new data to it."""
     data = pd.DataFrame()
