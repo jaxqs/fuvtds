@@ -34,7 +34,7 @@ class FUVTDSModel(BaseDataModel):
         """Set the model for what data is to be retrieved from each x1d file."""
         header_request = {
             0: ['ROOTNAME', 'SEGMENT', 'CENWAVE', 'TARGNAME', 'OPT_ELEM', 'LIFE_ADJ', 'EXPTYPE'],
-            1: ['DATE-OBS']
+            1: ['DATE-OBS', 'EXPSTART']
         }
         table_request = {
             1: ['WAVELENGTH', 'FLUX', 'NET', 'BACKGROUND', 'DQ_WGT']
