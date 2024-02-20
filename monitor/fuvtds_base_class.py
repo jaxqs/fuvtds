@@ -39,8 +39,6 @@ class FUVTDSBase:
         targs (array-like): the TARGNAME keyword for each x1d file, per segment.
         ref (dict): Nested dictionary of NET, WAVELENGTH, and filename for each
                 reference (first in time) dataset's cenwave.
-
-    Returns
     """
 
     def __init__(self, PIDs, breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0]):
