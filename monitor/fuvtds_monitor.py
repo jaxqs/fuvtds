@@ -23,7 +23,10 @@ COS_MONITORING = 'output/'
 spaceweather_url = 'ftp://ftp.seismo.nrcan.gc.ca/spaceweather/solar_flux/daily_flux_values/fluxtable.txt'
 
 def binned(wavelength_x, net_y, dq_wgt, cenwave, segment):
- # this can be transfered to monitor_helpers.py
+    """
+    This function bins the wavelength (x array) and the net (y array) by pre-established
+    binwidth that will aid with the fitting process. 
+    """
     # establish the wavelength bins
     wl_info_dict = {
         # G160M
