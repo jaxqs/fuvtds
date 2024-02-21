@@ -24,11 +24,12 @@ class FUVTDSBase:
     conduct a FUVTDS monitor analysis.
 
     Attributes:
-        infiles (array-like): files organized by date and cleaned
-        mjds (array-like): the MJDs of all the files by chronological order
-        breakpoints (array-like): all the tDS breakpoints by fractional year.
-        nentries (int): number of datasets, by segment
-        rootnames (array-like): Rootnames of all input x1d files.
+        infiles (array-like): files organized by date and cleaned, by segment.
+        date_dec (array-like): the decimal years of all the files by chronological order, by segment.
+        breakpoints (array-like): all the TDS breakpoints by fractional year.
+        reftime (float.64): The decimal year of the reftime.
+        nentries (int): number of datasets, by segment.
+        rootnames (array-like): Rootnames of all input x1d files, by segment.
         nets (array-like): binned NET array for each x1d file, per segment.
         wls (array-like): binned  WAVELENGTH array for each x1d file, per segment.
         stdevs (array-like): binned standard deviation of the NET array binning.
@@ -41,7 +42,7 @@ class FUVTDSBase:
                 reference (first in time) dataset's cenwave.
     """
 
-    def __init__(self, PIDs, breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0]):
+    def __init__(self, PIDs, reftime = 54952.0, breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0]):
         """
         Args:
             PIDs: the dat file that will store all the PIDs part of the
@@ -50,17 +51,48 @@ class FUVTDSBase:
         """
         files = self.parse_infiles(PIDs)
         self.breakpoints = np.array(breakpoints)
-        self.rootnames = np.array([fits.getval(x, "rootname", 0) for x in self.infiles])
-        self.get_hduinfo()
+        self.reftime = Time(reftime, format="mjd").decimalyear
+        net_len = self.get_hduinfo()
         self.bin_data()
         self.get_refdata()
+        scaled_net, scaled_std = self.calc_ratios()
+
+# --------------------------------------------------------------------------------#
+    def calc_ratios(self):
+        """
+        Scale the NET array and STDEV array of each input dataset to the reference
+        dataset (first dataset of the same cenwave and segment).
+
+        Note: Should I interpolate the NET values to the wavelength scale of its
+        reference dataset (first in time)?
+        """
+        scaled_net = []
+        scaled_std = []
+
+        for i in range(self.nentries):
+
+            # scale the NET array to its respective reference dataset
+            ref_net = self.ref[self.cenwaves[i]][self.segments[i]]["net"]
+            ref_net.astype(np.float64)
+            ratio_net = self.nets[i]/ ref_net
+            ratio_net = np.nan_to_num(ratio_net)
+            scaled_net.append(ratio_net)
+
+            # scale the STDEV array to its respective reference dataset
+            # be sure to propagate errors correctly
+            ref_std = self.ref[self.cenwaves[i]][self.segments[i]]["stdev"]
+            ref_std.astype(np.float64)
+            ratio_std = (np.sqrt((ref_std/ref_net)**2 + (self.stdevs[i]/self.nets[i])**2)) * ratio_net
+            ratio_std = np.nan_to_num(ratio_std)
+            scaled_std.append(ratio_std)
+        
+        return(np.array(scaled_net, dtype=object), np.array(scaled_std, dtype=object))
 
 # --------------------------------------------------------------------------------#
     def bin_data(self):
         """
         Bin the net counts in each wavelength bin for each file and segment and
         calculcate the standard deviation.
-        Lifetime position (LP) and the target (targ) are also recorded.
         """
         wl_info_dict = {
             # G160M
@@ -86,9 +118,6 @@ class FUVTDSBase:
         nets = []
         stdevs = []
         for i in range(self.nentries):
-            wavelength = []
-            net = []
-            stdev = []
 
             wl_range = wl_info_dict[self.cenwaves[i]][self.segments[i]]
             min_wl = wl_range[0]
@@ -112,16 +141,13 @@ class FUVTDSBase:
                 np.std, bins=bins
             )[0]
 
-            wavelength.append(edges[:-1]+np.diff(edges)/2)
-            net.append(mean_net)
-            stdev.append(std_net)
-        wavelengths.append(wavelength)
-        nets.append(net)
-        stdevs.append(stdev)
+            wavelengths.append(edges[:-1]+np.diff(edges)/2)
+            nets.append(mean_net)
+            stdevs.append(std_net)
 
-        self.wls = np.array(wavelengths)
-        self.nets = np.array(nets)
-        self.stdevs = np.array(stdevs)
+        self.wls = np.array(wavelengths, dtype=object)
+        self.nets = np.array(nets, dtype=object)
+        self.stdevs = np.array(stdevs, dtype=object)
 # --------------------------------------------------------------------------------#
     def get_refdata(self):
         """
@@ -133,9 +159,12 @@ class FUVTDSBase:
         for i in range(self.nentries):
             if self.cenwaves[i] not in ref_dict.keys():
                 ref_dict[self.cenwaves[i]] = {}
-                ref_dict[self.cenwaves[i]]["net"] = self.nets[i]
-                ref_dict[self.cenwaves[i]]["wl"] = self.wls[i]
-                ref_dict[self.cenwaves[i]]["filename"] = self.infiles[i]
+            if self.segments[i] not in ref_dict[self.cenwaves[i]].keys():
+                ref_dict[self.cenwaves[i]][self.segments[i]] = {}
+                ref_dict[self.cenwaves[i]][self.segments[i]]["net"] = self.nets[i]
+                ref_dict[self.cenwaves[i]][self.segments[i]]["wl"] = self.wls[i]
+                ref_dict[self.cenwaves[i]][self.segments[i]]["stdev"] = self.stdevs[i]
+                ref_dict[self.cenwaves[i]][self.segments[i]]["filename"] = self.infiles[i]
         
         self.ref = ref_dict
 
@@ -153,14 +182,17 @@ class FUVTDSBase:
         nentries = []
         lps = []
         targets = []
+        rootnames = []
+        date_dec = []
 
         for i in range(len(self.infiles)):
             with fits.open(self.infiles[i], memmap=False) as hdulist:
                 data = hdulist[1].data
                 hdr0 = hdulist[0].header
+                hdr1 = hdulist[1].header
 
                 # if the x1d file is a single segment, try this
-                try:
+                if hdr0["segment"] != 'BOTH':
                     if hdr0["cenwave"] == 1230:
                         cenwaves.append(1280)
                     else:
@@ -172,9 +204,11 @@ class FUVTDSBase:
                     nentries.append(self.infiles[i])
                     lps.append(hdr0['LIFE_ADJ'])
                     targets.append(hdr0['TARGNAME'])
+                    rootnames.append(hdr0['rootname'])
+                    date_dec.append(Time(hdr1['EXPSTART'], format="mjd").decimalyear)
 
                 # if the x1d file has BOTH segments, do this instead
-                except:
+                else:
                     FUV = ['FUVA', 'FUVB']
                     for j, seg in enumerate(FUV):
                         if hdr0["cenwave"] == 1230:
@@ -188,15 +222,21 @@ class FUVTDSBase:
                         nentries.append(self.infiles[i])
                         lps.append(hdr0['LIFE_ADJ'])
                         targets.append(hdr0['TARGNAME'])
+                        rootnames.append(hdr0['rootname'])
+                        date_dec.append(Time(hdr1['EXPSTART'], format="mjd").decimalyear)
 
-        self.nets = np.array(nets)
-        self.wls = np.array(wls)
+        self.nets = np.array(nets, dtype=object)
+        self.wls = np.array(wls, dtype=object)
         self.cenwaves = np.array(cenwaves)
         self.gratings = np.array(gratings)
         self.segments = np.array(segments)
         self.nentries = len(nentries)
         self.lps = np.array(lps)
         self.targs = np.array(targets)
+        self.rootnames = np.array(rootnames)
+        self.date_dec = np.array(date_dec)
+        self.infiles = np.array(nentries)
+        return(len(self.nets)) #THIS IS A CHECK, NOT USED IN MONITOR
 
 # --------------------------------------------------------------------------------#
     def parse_infiles(self, PIDs, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
@@ -227,16 +267,16 @@ class FUVTDSBase:
        x1d_paths = np.array(x1d_paths)
        # filter out the data we do not want. ei WAVECAL, weird targets, and zero exptime
        # this takes a lot of time to run, perhaps a way to multithread this?
+       bad_cenwaves = [1600, 1589, 1309]
        filter = [(fits.getval(x, "targname", 0) != 'LDS749B') & 
                          (fits.getval(x, "exptime", 1) != 0.0) &
-                          (fits.getval(x, "EXPTYPE", 0) == 'EXTERNAL/SCI') for x in x1d_paths]
+                          (fits.getval(x, "EXPTYPE", 0) == 'EXTERNAL/SCI') &
+                           (fits.getval(x, "cenwave",0) not in bad_cenwaves) for x in x1d_paths]
        x1d_paths = x1d_paths[filter]
 
        # order the files by mjd
-       mjds = [Time(fits.getval(x, "expstart", 1), format="mjd") for x in x1d_paths]
+       mjds = [fits.getval(x, "expstart", 1) for x in x1d_paths]
        order = np.argsort(mjds)
-
-       self.mjds = np.array(mjds)[order]
        self.infiles = x1d_paths[order]
 
        return(x1d_paths) #THIS RETURN IS NOT NEEDED FOR THE ACTUAL MONITOR. JSUT A CHECK
