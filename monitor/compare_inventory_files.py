@@ -12,8 +12,8 @@ import numpy as np
 from astropy.io import ascii
 import pandas as pd
 
-inventory_1055 = ascii.read('inventory.txt', delimiter="\s", header_start=2, data_start=3, data_end=68)
-inventory_1096 = ascii.read('inventory.txt', delimiter="\s", header_start=70, data_start=71, data_end=184)
+inventory_1055 = ascii.read('inventory.txt', delimiter="\s", header_start=2, data_start=3, data_end=70)
+inventory_1096 = ascii.read('inventory.txt', delimiter="\s", header_start=72, data_start=73, data_end=189)
 inventory_1222 = ascii.read('inventory.txt', delimiter="\s", header_start=186, data_start=187, data_end=268)
 inventory_1291 = ascii.read('inventory.txt', delimiter="\s", header_start=270, data_start=271, data_end=413)
 inventory_1309 = ascii.read('inventory.txt', delimiter="\s", header_start=415, data_start=416, data_end=456)
@@ -27,7 +27,7 @@ inventory_1600 = ascii.read('inventory.txt', delimiter="\s", header_start=1152, 
 inventory_1611 = ascii.read('inventory.txt', delimiter="\s", header_start=1190, data_start=1191, data_end=1245)
 inventory_1623 = ascii.read('inventory.txt', delimiter="\s", header_start=1247, data_start=1248, data_end=1456)
 
-LP3_LP4_switch = Time('2017-10-02').decimalyear#-0.1
+LP3_LP4_switch = 0.0#Time('2017-10-02').decimalyear#-0.1
 rootname_1055 = inventory_1055['Rootname'][Time(inventory_1055['date-obs']).decimalyear>LP3_LP4_switch]
 rootname_1096 = inventory_1096['Rootname'][((inventory_1096['targname']=='GD71'))] # Calibrate all
 rootname_1096_wave = inventory_1096['Rootname'][((inventory_1096['targname']=='WAVE'))] # Calibrate all
@@ -50,11 +50,47 @@ rootname_1533B = rootname_1533B[1:]
 rootname_800 = rootname_800[1:]
 
 inventory = pd.read_csv('inventory.csv')
+rootnames = np.array(inventory['rootname'].loc[(inventory['life_adj'] == '4') & (inventory['cenwave']==800)]).flatten()
 
-rootnames = np.array(inventory.loc[(inventory['cenwave'] == 1623) & (inventory['date-obs'] > '2017-10-02'), ['rootname']]).flatten()
+# checks to see if inventory dot txt contains a rootname I do not have
+for row in rootname_800:
+    if row not in rootnames:
+        print(row)
 
-for row in rootnames:
-    if (row not in rootname_1623A) & ((row not in rootname_1623B)):
-        print(f"{row} {np.array(inventory['file_path'][inventory['rootname'] == row])}")
-    #else:
-    #    print('yes!')
+
+"""
+all_roots = [
+    rootname_1055, 
+    rootname_1096, 
+    rootname_1222, 
+    rootname_1291, 
+    rootname_1327,
+    rootname_800, #G140L
+    rootname_1105, #G140L
+    rootname_1280, #G140L
+    rootname_1533A,
+    rootname_1533B,
+    rootname_1577A,
+    rootname_1577B,
+    rootname_1623A,
+    rootname_1623B
+    ]
+roots = []
+for row in all_roots:
+    for row_small in row:
+        roots.append(row_small)
+roots = np.array(roots, dtype='str').flatten()
+
+inventory = pd.read_csv('inventory.csv')
+rootnames = np.array(inventory['rootname']).flatten()
+
+#Checks if I don't contain a dataset that inventory does have
+for row in roots:
+    if row not in rootnames:
+        print(row)
+
+#for i, row in enumerate(rootnames):
+#    if row not in roots:
+#        print(row, inventory['proposid'][i], inventory['opt_elem'][i], inventory['cenwave'][i])
+
+"""

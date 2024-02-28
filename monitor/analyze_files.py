@@ -6,30 +6,36 @@ from itertools import repeat
 import multiprocessing as mp
 from tqdm.contrib.concurrent import process_map
 
-def bad_list(grating):
-    bad_roots = {'G130M': ['ldqj05xyq', 'ldqj08j1q', 'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq',
-                           'ldv006lkq', 'ldqj05xuq', 'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq',
-                           'ldv003dbq', 'ldqj59jtq', 'ldv007p6q', 'ldv008obq', 'ldv010eoq', 'lefe03gmq',
-                           'ldqj05xwq', 'ldqj08izq', 'ldqj12e4q', 'ldqj56a5q', 'ldqj57ttq', 'ldv003ddq',
-                           'ldqj59jvq', 'ldv007p8q', 'ldv010etq', 'ler107a7q', 'ldqj05yoq', 'ldqj08jdq', 
-                           'ldqj12e6q', 'ldqj56a7q', 'ldqj57tvq', 'ldqj59jxq', 'ldv007pmq', 'ldv008orq', 
-                           'ldv010fvq', 'le5g07naq', 'ler15bhaq', 'lf205ag7q'],
+def bad_list(grating): 
+    # check against inventory dot txt to remove th G140L LP4 rootnames.
+    bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
+                           'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq', 'ldv006lkq', 'ldqj05xuq', 
+                           'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq', 'ldv003dbq', 'ldqj59jtq', 
+                           'ldv007p6q', 'ldv008obq', 'ldv010eoq', 'lefe03gmq', 'ldqj05xwq', 'ldqj08izq', 
+                           'ldqj12e4q', 'ldqj56a5q', 'ldqj57ttq', 'ldv003ddq', 'ldqj59jvq', 'ldv007p8q', 
+                           'ldv010etq', 'ler107a7q', 'ldqj05yoq', 'ldqj08jdq', 'ldqj12e6q', 'ldqj56a7q', 
+                           'ldqj57tvq', 'ldqj59jxq', 'ldv007pmq', 'ldv008orq', 'ldv010fvq', 'le5g07naq', 
+                           'ler15bhaq', 'lf205ag7q', 'lefe03gjq', 'lbxmt3m3q', 'lbxm04p7q', 'lbxmt3mcq',
+                           'lbxmt3m1q'],
                 'G140L': ['ldv007piq', 'ldv008onq', 'ldv010fpq', 'le5g07n4q', 'ler158owq', 'lf205ag2q',
                           'ldqj05ymq', 'ldqj08jbq', 'ldqj12eeq', 'ldqj56afq', 'ldqj57u3q', 'ldqj58hpq',
                           'ldqj59k5q', 'ldv007pkq', 'ldv008opq', 'ldv010ftq', 'le5g07n8q', 'lf205ag4q',
                           'ldqj05ykq', 'ldqj08j9q', 'ldqj12ecq', 'ldqj56adq', 'ldqj57u1q', 'ldqj58hmq',
-                          'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq'],
-                'G160M': ['ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2002e3q', 'lf201dsfq', 'lf2006lsq',
-                          'lf205bahq', 'lf205dmdq', 'lf2056ftq', 'lf207bkkq', 'lf2012drq', 'lf2011idq',
-                          'lf4g02jnq', 'lf4g1bs4q', 'ldqj05y0q', 'ldqj08j3q', 'ldqj13e9q', 'ldqj12e8q',
-                          'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 'ldv006lsq', 'ldqj59jzq', 'ldv007peq',
-                          'ldv008ojq', 'ldv010flq', 'ler106dsq', 'lf2002e6q', 'lf201dshq', 'lf2006liq',
-                          'lf2006luq', 'lf205bakq', 'lf205bauq', 'lf205dmfq', 'lf2056g5q', 'lf207bleq',
-                          'lf2012dtq', 'lf2011ifq', 'lf4g02jpq', 'lf4g1bs6q', 'ldqj05y2q', 'ldqj08j5q',
-                          'ldqj13ebq', 'ldqj12eaq', 'ldqj56abq', 'ldqj57tzq', 'ldqj58hjq', 'ldv006lvq',
-                          'ldqj59k1q', 'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 'ler106dwq',
-                          'lf203bn8q', 'lf2004j0q', 'lf2006lqq', 'lf205bb8q', 'lf207bkoq', 'lf208bktq',
-                          'lf2009i4q']}
+                          'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq', 'lbxmt1nzq', 'lbxmt3lwq'],
+                'G160M': ['lbb917kfq', 'ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2002e3q', 'lf201dsfq', 
+                          'lf2006lsq', 'lf205bahq', 'lf205dmdq', 'lf2056ftq', 'lf207bkkq', 'lf2012drq', 
+                          'lf2011idq', 'lf4g02jnq', 'lf4g1bs4q', 'ldqj05y0q', 'ldqj08j3q', 'ldqj13e9q', 
+                          'ldqj12e8q', 'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 'ldv006lsq', 'ldqj59jzq', 
+                          'ldv007peq', 'ldv008ojq', 'ldv010flq', 'ler106dsq', 'lf2002e6q', 'lf201dshq', 
+                          'lf2006liq', 'lf2006luq', 'lf205bakq', 'lf205bauq', 'lf205dmfq', 'lf2056g5q', 
+                          'lf207bleq', 'lf2012dtq', 'lf2011ifq', 'lf4g02jpq', 'lf4g1bs6q', 'ldqj05y2q', 
+                          'ldqj08j5q', 'ldqj13ebq', 'ldqj12eaq', 'ldqj56abq', 'ldqj57tzq', 'ldqj58hjq', 
+                          'ldv006lvq', 'ldqj59k1q', 'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 
+                          'ler106dwq', 'lf203bn8q', 'lf2004j0q', 'lf2006lqq', 'lf205bb8q', 'lf207bkoq', 
+                          'lf208bktq', 'lf2009i4q', 'lf2111zuq', 'lf218blhq', 'lf203bn6q', 'ler106duq', 
+                          'lf4h1bbwq', 'lf218bljq', 'ler106dkq', 'lf4h04wyq', 'lbxm02agq', 'lf2004iyq', 
+                          'lf208bkrq', 'lbxm02bxq', 'lf4h04x0q', 'lf2009i2q', 'lf2111zoq', 'lf2006lmq',
+                          'lbxm02ayq', 'lf205bb1q', 'lf2109zlq', 'lf207bkmq', 'lf4h1bbyq']} 
 
     return(bad_roots[grating])
 
@@ -79,11 +85,30 @@ def get_x1ds_data(file_path):
     hdu = fits.open(file_path)
     exptime = hdu[1].header['exptime']
 
-    bad_targs = ['WAVE', 'GD71']
+    #bad_targs = ['WAVE', 'LDS749B']
     #bad_items = bad_list(hdu[0].header['opt_elem'])
     
-    # only want exposures that ran well and aren't WAVE files
-    if (exptime != 0.0) & (hdu[0].header['targname'] in bad_targs) & ( len(hdu[1].data['wavelength']) != 0): #& (hdu[0].header['rootname'] not in bad_items):
+    def c1280_check(cenwave, fppos, expstart):
+        good = False
+        if (fppos == 3) & (cenwave != 1280):
+            good = True
+        elif (cenwave == 1280) & (fppos == 4) & (expstart < 56130.0):
+            good = True
+        elif (cenwave == 1280) & (fppos == 3) & (expstart > 56130.0):
+            good = True
+        return (good)
+
+    criteria = {
+        'exptime': exptime !=0,
+        'bad_targs': hdu[0].header['targname'] not in ['WAVE', 'LDS749B'],
+        'bad_items': hdu[0].header['rootname'] not in bad_list(hdu[0].header['opt_elem']),
+        'fppos_check': c1280_check(
+            hdu[0].header['cenwave'],
+            hdu[0].header['fppos'],
+            hdu[1].header['expstart']) == True,
+        'wl': len(hdu[1].data['wavelength']) != 0
+    }
+    if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']):
         x1d_table = pd.DataFrame(
             {'rootname': [hdu[0].header['rootname']],
             'opt_elem': [hdu[0].header['opt_elem']],
@@ -96,9 +121,6 @@ def get_x1ds_data(file_path):
             'date-obs': [hdu[1].header['date-obs']],
             'exptime': [exptime],
             'file_path': [file_path],
-            'obstype': [hdu[0].header['obstype']],
-            'obsmode': [hdu[0].header['obsmode']],
-            'exptype': [hdu[0].header['exptype']]
             }
         )
         hdu.close()
@@ -168,7 +190,7 @@ if __name__ == "__main__":
     # change these as needed
     datadir = '/grp/hst/cos2/cosmo/'
     pattern = '*x1d.fits*'
-    inventory = 'doublecheck.csv'
+    inventory = 'inventory.csv'
     pid_file = '/Users/jhernandez/Desktop/fuvtds/monitor/fuvtds_analysis_list.dat'
 
     analyze_files(datadir, pid_file, pattern, inventory)
