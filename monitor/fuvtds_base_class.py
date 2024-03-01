@@ -42,7 +42,8 @@ class FUVTDSBase:
                 reference (first in time) dataset's cenwave.
     """
 
-    def __init__(self, PIDs, reftime = 54952.0, breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0]):
+    def __init__(self, PIDs, reftime = 54952.0, 
+                 breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0, 2023.2]):
         """
         Args:
             PIDs: the dat file that will store all the PIDs part of the
@@ -54,6 +55,10 @@ class FUVTDSBase:
         self.reftime = Time(reftime, format="mjd").decimalyear
         net_len = self.get_hduinfo()
         self.bin_data()
+
+        # scale between LPs here
+
+        # after the scaling, get the reference data (first obs)
         self.get_refdata()
         scaled_net, scaled_std = self.calc_ratios()
 
