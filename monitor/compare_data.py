@@ -25,15 +25,15 @@ for i, row in enumerate(mine_names):
 print(counter)
 
 # This checks if MAR2022 contain a dataset that I do not contain
+
+#counter = 0 
+#for i, row in enumerate(original_names):
+#    if row not in mine_names:
+#        counter = counter + 1
+#        print(row)
+#print(counter)
+
 """
-counter = 0 
-for i, row in enumerate(original_names):
-    if row not in mine_names:
-        counter = counter + 1
-        print(row)
-print(counter)
-
-
 tables = []
 for i, row in enumerate(original_names):
     if row not in mine_names:

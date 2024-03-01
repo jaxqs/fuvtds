@@ -7,7 +7,6 @@ import multiprocessing as mp
 from tqdm.contrib.concurrent import process_map
 
 def bad_list(grating): 
-    # Check for G160M LP4 past oct to remove from this list
     bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
                            'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq', 'ldv006lkq', 'ldqj05xuq', 
                            'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq', 'ldv003dbq', 'ldqj59jtq', 
@@ -16,26 +15,21 @@ def bad_list(grating):
                            'ldv010etq', 'ler107a7q', 'ldqj05yoq', 'ldqj08jdq', 'ldqj12e6q', 'ldqj56a7q', 
                            'ldqj57tvq', 'ldqj59jxq', 'ldv007pmq', 'ldv008orq', 'ldv010fvq', 'le5g07naq', 
                            'ler15bhaq', 'lf205ag7q', 'lefe03gjq', 'lbxmt3m3q', 'lbxm04p7q', 'lbxmt3mcq',
-                           'lbxmt3m1q'],
+                           'lbxmt3m1q'], 
                 'G140L': ['ldv007piq', 'ldv008onq', 'ldv010fpq', 'le5g07n4q', 'ler158owq', 'lf205ag2q',
                           'ldqj05ymq', 'ldqj08jbq', 'ldqj12eeq', 'ldqj56afq', 'ldqj57u3q', 'ldqj58hpq',
                           'ldqj59k5q', 'ldv007pkq', 'ldv008opq', 'ldv010ftq', 'le5g07n8q', 'lf205ag4q',
                           'ldqj05ykq', 'ldqj08j9q', 'ldqj12ecq', 'ldqj56adq', 'ldqj57u1q', 'ldqj58hmq',
-                          'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq', 'lbxmt1nzq', 'lbxmt3lwq'],
-                'G160M': ['lbb917kfq', 'ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2002e3q', 'lf201dsfq', 
-                          'lf2006lsq', 'lf205bahq', 'lf205dmdq', 'lf2056ftq', 'lf207bkkq', 'lf2012drq', 
-                          'lf2011idq', 'lf4g02jnq', 'lf4g1bs4q', 'ldqj05y0q', 'ldqj08j3q', 'ldqj13e9q', 
-                          'ldqj12e8q', 'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 'ldv006lsq', 'ldqj59jzq', 
-                          'ldv007peq', 'ldv008ojq', 'ldv010flq', 'ler106dsq', 'lf2002e6q', 'lf201dshq', 
-                          'lf2006liq', 'lf2006luq', 'lf205bakq', 'lf205bauq', 'lf205dmfq', 'lf2056g5q', 
-                          'lf207bleq', 'lf2012dtq', 'lf2011ifq', 'lf4g02jpq', 'lf4g1bs6q', 'ldqj05y2q', 
-                          'ldqj08j5q', 'ldqj13ebq', 'ldqj12eaq', 'ldqj56abq', 'ldqj57tzq', 'ldqj58hjq', 
-                          'ldv006lvq', 'ldqj59k1q', 'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 
-                          'ler106dwq', 'lf203bn8q', 'lf2004j0q', 'lf2006lqq', 'lf205bb8q', 'lf207bkoq', 
-                          'lf208bktq', 'lf2009i4q', 'lf2111zuq', 'lf218blhq', 'lf203bn6q', 'ler106duq', 
-                          'lf4h1bbwq', 'lf218bljq', 'ler106dkq', 'lf4h04wyq', 'lbxm02agq', 'lf2004iyq', 
-                          'lf208bkrq', 'lbxm02bxq', 'lf4h04x0q', 'lf2009i2q', 'lf2111zoq', 'lf2006lmq',
-                          'lbxm02ayq', 'lf205bb1q', 'lf2109zlq', 'lf207bkmq', 'lf4h1bbyq']} 
+                          'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq', 'lbxmt1nzq', 'lbxmt3lwq',
+                          'lbxmt3mfq'],
+                'G160M': ['lbb917kfq', 'ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2056ftq', 'ldqj05y0q', 
+                          'ldqj08j3q', 'ldqj13e9q', 'ldqj12e8q', 'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 
+                          'ldv006lsq', 'ldqj59jzq', 'ldv007peq', 'ldv008ojq', 'ldv010flq', 'ler106dsq',
+                          'lf2006liq', 'lf205bauq', 'lf2056g5q', 'ldqj05y2q', 'ldqj08j5q', 'ldqj13ebq', 
+                          'ldqj12eaq', 'ldqj56abq', 'ldqj57tzq', 'ldqj58hjq', 'ldv006lvq', 'ldqj59k1q', 
+                          'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 'ler106dwq', 'lf2006lqq', 
+                          'lf205bb8q', 'lf2111zuq', 'ler106duq', 'ler106dkq', 'lbxm02agq', 'lbxm02bxq', 
+                          'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q']} 
 
     return(bad_roots[grating])
 
