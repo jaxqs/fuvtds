@@ -7,7 +7,7 @@ import multiprocessing as mp
 from tqdm.contrib.concurrent import process_map
 
 def bad_list(grating): 
-    # check against inventory dot txt to remove th G140L LP4 rootnames.
+    # Check for G160M LP4 past oct to remove from this list
     bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
                            'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq', 'ldv006lkq', 'ldqj05xuq', 
                            'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq', 'ldv003dbq', 'ldqj59jtq', 
@@ -84,9 +84,6 @@ def get_x1ds_data(file_path):
     """
     hdu = fits.open(file_path)
     exptime = hdu[1].header['exptime']
-
-    #bad_targs = ['WAVE', 'LDS749B']
-    #bad_items = bad_list(hdu[0].header['opt_elem'])
     
     def c1280_check(cenwave, fppos, expstart):
         good = False
