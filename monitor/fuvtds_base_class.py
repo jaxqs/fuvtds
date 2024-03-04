@@ -302,3 +302,57 @@ class FUVTDSBase:
         total_path = os.path.join(COSMO, all_programs, pattern)
         path_list = glob.glob(total_path)
         return(path_list)
+    
+    def _criteria(self, x1dfile):
+        hdu = fits.open(x1dfile)
+
+        bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
+                           'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq', 'ldv006lkq', 'ldqj05xuq', 
+                           'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq', 'ldv003dbq', 'ldqj59jtq', 
+                           'ldv007p6q', 'ldv008obq', 'ldv010eoq', 'lefe03gmq', 'ldqj05xwq', 'ldqj08izq', 
+                           'ldqj12e4q', 'ldqj56a5q', 'ldqj57ttq', 'ldv003ddq', 'ldqj59jvq', 'ldv007p8q', 
+                           'ldv010etq', 'ler107a7q', 'ldqj05yoq', 'ldqj08jdq', 'ldqj12e6q', 'ldqj56a7q', 
+                           'ldqj57tvq', 'ldqj59jxq', 'ldv007pmq', 'ldv008orq', 'ldv010fvq', 'le5g07naq', 
+                           'ler15bhaq', 'lf205ag7q', 'lefe03gjq', 'lbxmt3m3q', 'lbxm04p7q', 'lbxmt3mcq',
+                           'lbxmt3m1q'], 
+                'G140L': ['ldv007piq', 'ldv008onq', 'ldv010fpq', 'le5g07n4q', 'ler158owq', 'lf205ag2q',
+                          'ldqj05ymq', 'ldqj08jbq', 'ldqj12eeq', 'ldqj56afq', 'ldqj57u3q', 'ldqj58hpq',
+                          'ldqj59k5q', 'ldv007pkq', 'ldv008opq', 'ldv010ftq', 'le5g07n8q', 'lf205ag4q',
+                          'ldqj05ykq', 'ldqj08j9q', 'ldqj12ecq', 'ldqj56adq', 'ldqj57u1q', 'ldqj58hmq',
+                          'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq', 'lbxmt1nzq', 'lbxmt3lwq',
+                          'lbxmt3mfq'],
+                'G160M': ['lbb917kfq', 'ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2056ftq', 'ldqj05y0q', 
+                          'ldqj08j3q', 'ldqj13e9q', 'ldqj12e8q', 'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 
+                          'ldv006lsq', 'ldqj59jzq', 'ldv007peq', 'ldv008ojq', 'ldv010flq', 'ler106dsq',
+                          'lf2006liq', 'lf205bauq', 'lf2056g5q', 'ldqj05y2q', 'ldqj08j5q', 'ldqj13ebq', 
+                          'ldqj12eaq', 'ldqj56abq', 'ldqj57tzq', 'ldqj58hjq', 'ldv006lvq', 'ldqj59k1q', 
+                          'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 'ler106dwq', 'lf2006lqq', 
+                          'lf205bb8q', 'lf2111zuq', 'ler106duq', 'ler106dkq', 'lbxm02agq', 'lbxm02bxq', 
+                          'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q']} 
+
+        def c1280_check(cenwave, fppos, expstart):
+            good = False
+            if (fppos == 3) & (cenwave != 1280): good = True
+            elif (cenwave == 1280) & (fppos == 4) & (expstart < 56130.0): good = True
+            elif (cenwave == 1280) & (fppos == 3) & (expstart > 56130.0): good = True
+            return(good)
+        
+        criteria = {
+            'exptime': hdu[1].header['exptime'] != 0,
+            'bad_targs': hdu[0].header['targname'] not in ['WAVE', 'LDS749B'],
+            'bad_items': hdu[0].header['rootname'] not in bad_roots[hdu[0].header['opt_elem']],
+            'fppos_check': c1280_check(
+                hdu[0].header['cenwave'],
+                hdu[0].header['fppos'],
+                hdu[1].header['expstart']) == True,
+            'wl': len(hdu[1].data['wavelength']) != 0,
+            'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01'))
+        }
+
+        ## potentially combine the analyze file inferstructure with the monitor
+        ## so that this monitor will create a csv file as one of the output products?
+        ## that way we don't have to update two different codes on any "bad" rootnames.
+        ## this would also benefit from looking more at those Bad Items to see if there
+        ## are cenwaves that are no longer used / certain criteria that can be coupled somewhere
+        ## else instead of just explicitly putting the rootname as Bad.
+        #return(cleaned)
