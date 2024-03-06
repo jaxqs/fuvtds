@@ -182,7 +182,7 @@ if __name__ == "__main__":
     # change these as needed
     datadir = '/grp/hst/cos2/cosmo/'
     pattern = '*x1d.fits*'
-    inventory = 'inventory.csv'
+    inventory = 'bad_inventory.csv'
     pid_file = '/Users/jhernandez/Desktop/fuvtds/monitor/fuvtds_analysis_list.dat'
 
     analyze_files(datadir, pid_file, pattern, inventory)
