@@ -31,10 +31,15 @@ class FUVTDSBase:
         reftime (float.64): The decimal year of the reftime.
         nentries (int): number of datasets, by segment.
         rootnames (array-like): Rootnames of all input x1d files, by segment.
+
+
+        ADD SMALL AND LARGE DIFFERENCES HERE
         nets (array-like): binned NET array for each x1d file, per segment.
         wls (array-like): binned  WAVELENGTH array for each x1d file, per segment.
         stdevs (array-like): binned standard deviation of the NET array binning.
         gratings (array-like): OPT_ELEM keyword for each x1d file, per segment.
+
+
         segments (array-like): SEGMENT keyword for each x1d file, per segment.
         nentries (int): the amount of entries of each x1d file, per segment.
         lps (array-like): the LIFE_ADJ keyword for each x1d file, per segment.
@@ -56,15 +61,22 @@ class FUVTDSBase:
         self.breakpoints = np.array(breakpoints)
         self.reftime = Time(reftime, format="mjd").decimalyear
         self.get_hduinfo()
-
-        # bin large and bin small
-        #self.bin_data()
+        self.bin_data()
 
         # scale between LPs here
+        if (6 in self.lps) & (4 in self.lps):
+            self.scale_lp6_data()
+
 
         # after the scaling, get the reference data (first obs)
         #self.get_refdata()
         #scaled_net, scaled_std = self.calc_ratios()
+            
+# --------------------------------------------------------------------------------#
+    def scale_lp6_data(self):
+        """
+        welp. stuff here
+        """
 
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
