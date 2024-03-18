@@ -7,6 +7,7 @@ import pandas as pd
 import multiprocessing as mp
 from itertools import repeat
 from scipy.stats import binned_statistic
+from tqdm.contrib.concurrent import process_map
 
 """
 This is the base class for the FUVTDS Monitor that will do all
@@ -43,24 +44,25 @@ class FUVTDSBase:
     """
 
     def __init__(self, PIDs, reftime = 54952.0, 
-                 breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0, 2023.2]):
+                 breakpoints = [2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0, 2023.2],
+                 inventory='inventory_test.csv'):
         """
         Args:
             PIDs: the dat file that will store all the PIDs part of the
                 FUVTDS Monitor programs.
             breakpoints: all the TDS breakpoints by fractional year.
         """
-        files = self.parse_infiles(PIDs)
+        self.parse_infiles(PIDs, inventory)
         self.breakpoints = np.array(breakpoints)
         self.reftime = Time(reftime, format="mjd").decimalyear
         net_len = self.get_hduinfo()
-        self.bin_data()
+        #self.bin_data()
 
         # scale between LPs here
 
         # after the scaling, get the reference data (first obs)
-        self.get_refdata()
-        scaled_net, scaled_std = self.calc_ratios()
+        #self.get_refdata()
+        #scaled_net, scaled_std = self.calc_ratios()
 
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
@@ -244,7 +246,7 @@ class FUVTDSBase:
         return(len(self.nets)) #THIS IS A CHECK, NOT USED IN MONITOR
 
 # --------------------------------------------------------------------------------#
-    def parse_infiles(self, PIDs, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
+    def parse_infiles(self, PIDs, csv_file, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
        """
         Determine the list of all input files
 
@@ -269,22 +271,28 @@ class FUVTDSBase:
        x1d_paths = [x for sublist in x1d_paths for x in sublist] # flatten list
        pool.terminate()
 
-       x1d_paths = np.array(x1d_paths)
-       # filter out the data we do not want. ei WAVECAL, weird targets, and zero exptime
-       # this takes a lot of time to run, perhaps a way to multithread this?
-       bad_cenwaves = [1600, 1589, 1309]
-       filter = [(fits.getval(x, "targname", 0) != 'LDS749B') & 
-                         (fits.getval(x, "exptime", 1) != 0.0) &
-                          (fits.getval(x, "EXPTYPE", 0) == 'EXTERNAL/SCI') &
-                           (fits.getval(x, "cenwave",0) not in bad_cenwaves) for x in x1d_paths]
-       x1d_paths = x1d_paths[filter]
+       if os.path.exists(csv_file):
+           in_table = pd.read_csv(csv_file)
+           x1d_paths = list(set(x1d_paths) - set(in_table))
+       else:
+           x1d_paths = list(x1d_paths)
 
-       # order the files by mjd
-       mjds = [fits.getval(x, "expstart", 1) for x in x1d_paths]
-       order = np.argsort(mjds)
-       self.infiles = x1d_paths[order]
+       tables = process_map(self.get_x1ds_data, x1d_paths, max_workers=16, chunksize=10)
+       tables = pd.concat(tables, ignore_index=True)
 
-       return(x1d_paths) #THIS RETURN IS NOT NEEDED FOR THE ACTUAL MONITOR. JSUT A CHECK
+       if len(tables) != 0:
+           tables = tables.sort_values(by=['date-obs'], ignore_index=True)
+           if os.path.exists(csv_file):
+               tables.to_csv(csv_file, mode='w+')
+           else:
+               tables.to_csv(csv_file)
+               print(f'{csv_file} was created.')
+
+       # use the inventory file to get the paths
+       inventory = pd.read_csv(csv_file)
+       x1d_paths = np.array(inventory['file_path']).flatten()
+
+       self.infiles = x1d_paths
 # --------------------------------------------------------------------------------#
     def _get_x1ds(self, COSMO, all_programs, pattern):
         """
@@ -303,10 +311,34 @@ class FUVTDSBase:
         path_list = glob.glob(total_path)
         return(path_list)
     
-    def _criteria(self, x1dfile):
-        hdu = fits.open(x1dfile)
+    def get_x1ds_data(self, file_path):
+        """
+        Open up the x1d files to obtain the necessary data to populate the csv file.
 
-        bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
+        Args:
+            file_path: the path to the file we want to open up
+            LP2_handoff: the mjd when the switch to LP2 occurred. We do not use 
+            1280 fppos3 datasets before this date, only at fppos4.
+
+        Returns:
+            x1d_table: DataFrame of the information we want from the x1d file
+        """
+        LP2_handoff = 56130.0
+        hdu = fits.open(file_path)
+        exptime = hdu[1].header['exptime']
+
+        def c1280_check(cenwave, fppos, expstart):
+            good = False
+            if (fppos == 3) & (cenwave != 1280):
+                good = True
+            elif (cenwave == 1280) & (fppos == 4) & (expstart < LP2_handoff):
+                good = True
+            elif (cenwave == 1280) & (fppos == 3) & (expstart > LP2_handoff):
+                good = True
+            return (good)
+        
+        def bad_list(grating):
+            bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
                            'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq', 'ldv006lkq', 'ldqj05xuq', 
                            'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq', 'ldv003dbq', 'ldqj59jtq', 
                            'ldv007p6q', 'ldv008obq', 'ldv010eoq', 'lefe03gmq', 'ldqj05xwq', 'ldqj08izq', 
@@ -329,18 +361,12 @@ class FUVTDSBase:
                           'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 'ler106dwq', 'lf2006lqq', 
                           'lf205bb8q', 'lf2111zuq', 'ler106duq', 'ler106dkq', 'lbxm02agq', 'lbxm02bxq', 
                           'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q']} 
-
-        def c1280_check(cenwave, fppos, expstart):
-            good = False
-            if (fppos == 3) & (cenwave != 1280): good = True
-            elif (cenwave == 1280) & (fppos == 4) & (expstart < 56130.0): good = True
-            elif (cenwave == 1280) & (fppos == 3) & (expstart > 56130.0): good = True
-            return(good)
+            return (bad_roots[grating])
         
         criteria = {
-            'exptime': hdu[1].header['exptime'] != 0,
+            'exptime': exptime != 0,
             'bad_targs': hdu[0].header['targname'] not in ['WAVE', 'LDS749B'],
-            'bad_items': hdu[0].header['rootname'] not in bad_roots[hdu[0].header['opt_elem']],
+            'bad_items': hdu[0].header['rootname'] not in bad_list(hdu[0].header['opt_elem']),
             'fppos_check': c1280_check(
                 hdu[0].header['cenwave'],
                 hdu[0].header['fppos'],
@@ -348,6 +374,25 @@ class FUVTDSBase:
             'wl': len(hdu[1].data['wavelength']) != 0,
             'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01'))
         }
+
+        if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']) & (criteria['lp4']):
+            x1d_table = pd.DataFrame(
+                {
+                    'rootname': [hdu[0].header['rootname']],
+                    'opt_elem': [hdu[0].header['opt_elem']],
+                    'cenwave': [hdu[0].header['cenwave']],
+                    'segment': [hdu[0].header['segment']],
+                    'fppos': [hdu[0].header['fppos']],
+                    'life_adj': [hdu[0].header['life_adj']],
+                    'proposid': [hdu[0].header['proposid']],
+                    'targname': [hdu[0].header['targname']],
+                    'date-obs': [hdu[1].header['date-obs']],
+                    'exptime': [exptime],
+                    'file_path': [file_path]
+                }
+            )
+            hdu.close()
+            return (x1d_table)
 
         ## potentially combine the analyze file inferstructure with the monitor
         ## so that this monitor will create a csv file as one of the output products?
