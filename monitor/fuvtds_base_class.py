@@ -55,7 +55,7 @@ class FUVTDSBase:
         self.parse_infiles(PIDs, inventory)
         self.breakpoints = np.array(breakpoints)
         self.reftime = Time(reftime, format="mjd").decimalyear
-        net_len = self.get_hduinfo()
+        self.get_hduinfo()
         #self.bin_data()
 
         # scale between LPs here
@@ -192,6 +192,9 @@ class FUVTDSBase:
         rootnames = []
         date_dec = []
 
+        # NOT NEEDED IN MONITOR. THIS IS A BUG CHECK. CAN BE REMOVED.
+        print(f'in get_hdu before for loops: {len(self.infiles)}')
+
         for i in range(len(self.infiles)):
             with fits.open(self.infiles[i], memmap=False) as hdulist:
                 data = hdulist[1].data
@@ -243,7 +246,9 @@ class FUVTDSBase:
         self.rootnames = np.array(rootnames)
         self.date_dec = np.array(date_dec)
         self.infiles = np.array(nentries)
-        return(len(self.nets)) #THIS IS A CHECK, NOT USED IN MONITOR
+
+        # NOT NEEDED IN MONITOR. THIS IS A BUG CHGECK CAN BE REMOVED
+        print(f'in get_hdu after for loops: {len(self.nets)}')
 
 # --------------------------------------------------------------------------------#
     def parse_infiles(self, PIDs, csv_file, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
@@ -258,7 +263,7 @@ class FUVTDSBase:
             x1d_paths: The complete paths to all the x1dfiles, in chronological order and
                     cleaned of all the datasets we do not want.
         """
-       # read in dat file
+       # read in dat file that has the PIDs of all the FUV TDS monitoring data
        programs_df = pd.read_csv(PIDs, delim_whitespace=True)
        
        # change dat file into list of str of PID numbers
@@ -266,32 +271,50 @@ class FUVTDSBase:
        for _, col_data in programs_df.items(): 
           all_programs += col_data.to_numpy(dtype=str).tolist()
        
+       # get the paths to the x1d files from COSMO, multithreading
        with mp.Pool(16) as pool:
            x1d_paths = pool.starmap(self._get_x1ds, zip(repeat(COSMO), all_programs, repeat(pattern)))
        x1d_paths = [x for sublist in x1d_paths for x in sublist] # flatten list
        pool.terminate()
 
+       # checks to see if an inventory csv file exists and what data is not
+       # included that still needs to be ingested.
+       # If no csv file exists, then a new inventory csv file will be created.
        if os.path.exists(csv_file):
            in_table = pd.read_csv(csv_file)
            x1d_paths = list(set(x1d_paths) - set(in_table))
        else:
            x1d_paths = list(x1d_paths)
-
+    
+       # get the data from the x1d files into several dataframe tables. Multithreading
        tables = process_map(self.get_x1ds_data, x1d_paths, max_workers=16, chunksize=10)
+       
+       # combine all the x1d dataframe tables into one
        tables = pd.concat(tables, ignore_index=True)
 
+       # If dataframe tables were created, sort by date
        if len(tables) != 0:
            tables = tables.sort_values(by=['date-obs'], ignore_index=True)
+
+           # if inventory csv file exists, add any new data into the 
+           # pre-existing file.
            if os.path.exists(csv_file):
                tables.to_csv(csv_file, mode='w+')
+           
+           # if inventory csv file does not exist, create a new csv file
+           # from scratch. User can see what datasets were used in the monitor
+           # by this csv file.
            else:
                tables.to_csv(csv_file)
                print(f'{csv_file} was created.')
 
-       # use the inventory file to get the paths
+       # use the inventory csv file to get the x1d paths again
        inventory = pd.read_csv(csv_file)
+
+       # change to array and flatten to be used in the monitor
        x1d_paths = np.array(inventory['file_path']).flatten()
 
+       # set infiles to all these x1d files.
        self.infiles = x1d_paths
 # --------------------------------------------------------------------------------#
     def _get_x1ds(self, COSMO, all_programs, pattern):
@@ -317,16 +340,22 @@ class FUVTDSBase:
 
         Args:
             file_path: the path to the file we want to open up
-            LP2_handoff: the mjd when the switch to LP2 occurred. We do not use 
-            1280 fppos3 datasets before this date, only at fppos4.
 
         Returns:
             x1d_table: DataFrame of the information we want from the x1d file
         """
+
+        # Applies to c1280_check. We do not use c1280 at fppos 3 in LP1. 
+        # Only LP2 and onward. # MJD
         LP2_handoff = 56130.0
+
+        # open file
         hdu = fits.open(file_path)
         exptime = hdu[1].header['exptime']
 
+        # Use fppos 3 data only, except for c1280 if in LP1.
+        # Do not use c1280 at fppos 3 in LP1, instead use fppos 4 for LP1.
+        # After switch to LP2, use fppos 3. 
         def c1280_check(cenwave, fppos, expstart):
             good = False
             if (fppos == 3) & (cenwave != 1280):
@@ -338,6 +367,18 @@ class FUVTDSBase:
             return (good)
         
         def bad_list(grating):
+            """
+            These exposures have been manually removed from the FUV TDS dataset for a variety of reasons, including
+            but not limited to: bad aperture centering, missing wavelength arrays, no longer used cenwaves, etc.
+            As COSMO stores all datasets, this bad_roots dictionary filters out exposures no longer used in the FUV TDS
+            dataset. 
+
+            At some point, someone can find similarities between these datasets to include instead in the criteria
+            dictionary instead of explicitly writing not to use.
+
+            In the meantime, this 'bad_roots' list will have to be manually updated if/when more exposures fail that
+            escape the HOPPER alert.
+            """
             bad_roots = {'G130M': ['lbxm04pbq', 'lbxm04pdq', 'lbxm04pfq', 'lbxm04phq','ldqj05xyq', 'ldqj08j1q', 
                            'ldv003d9q', 'ldv007p4q', 'ldv008o9q', 'ldv010ekq', 'ldv006lkq', 'ldqj05xuq', 
                            'ldqj08ixq', 'ldqj12e2q', 'ldqj56a3q', 'ldqj57trq', 'ldv003dbq', 'ldqj59jtq', 
@@ -363,6 +404,7 @@ class FUVTDSBase:
                           'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q']} 
             return (bad_roots[grating])
         
+        # dictionary of if statements to filter out the data for exposures we do not use.
         criteria = {
             'exptime': exptime != 0,
             'bad_targs': hdu[0].header['targname'] not in ['WAVE', 'LDS749B'],
@@ -375,6 +417,8 @@ class FUVTDSBase:
             'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01'))
         }
 
+        # if-statement to filter out exposures we do not use and place the datasets we DO use
+        #into a dataframe to then be turned into a csv file data product.
         if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']) & (criteria['lp4']):
             x1d_table = pd.DataFrame(
                 {
@@ -393,11 +437,3 @@ class FUVTDSBase:
             )
             hdu.close()
             return (x1d_table)
-
-        ## potentially combine the analyze file inferstructure with the monitor
-        ## so that this monitor will create a csv file as one of the output products?
-        ## that way we don't have to update two different codes on any "bad" rootnames.
-        ## this would also benefit from looking more at those Bad Items to see if there
-        ## are cenwaves that are no longer used / certain criteria that can be coupled somewhere
-        ## else instead of just explicitly putting the rootname as Bad.
-        #return(cleaned)
