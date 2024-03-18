@@ -56,6 +56,8 @@ class FUVTDSBase:
         self.breakpoints = np.array(breakpoints)
         self.reftime = Time(reftime, format="mjd").decimalyear
         self.get_hduinfo()
+
+        # bin large and bin small
         #self.bin_data()
 
         # scale between LPs here
@@ -102,59 +104,85 @@ class FUVTDSBase:
         calculcate the standard deviation.
         """
         wl_info_dict = {
-            # G160M
-            1533: {'FUVA':[1535.0, 1705.0, 5], 'FUVB': [1345.0, 1515.0, 5]},
-            1577: {'FUVA':[1575.0, 1750.0, 5], 'FUVB': [1385.0, 1560.0, 5]},
-            1611: {'FUVA':[1610.0, 1785.0, 5], 'FUVB': [1420.0, 1590.0, 5]},
-            1623: {'FUVA':[1625.0, 1795.0, 5], 'FUVB': [1435.0, 1605.0, 5]},
-            
-            # G130M
-            1222: {'FUVA':[1225.0, 1360.0, 5], 'FUVB': [1085.0, 1205.0, 20]},
-            1055: {'FUVA':[1065.0, 1185.0, 20],'FUVB': [910.0, 1030.0, 60]},
-            1096: {'FUVB':[950.0, 1070.0, 20]},
-            1291: {'FUVA':[1290.0, 1430.0, 5], 'FUVB': [1140.0, 1200.0, 5]},
-            1327: {'FUVA':[1325.0, 1470.0, 5], 'FUVB': [1170.0, 1315.0, 5]},
+            'small':{
+                # G160M
+                1533: {'FUVA':[1535.0, 1705.0, 5], 'FUVB': [1345.0, 1515.0, 5]},
+                1577: {'FUVA':[1575.0, 1750.0, 5], 'FUVB': [1385.0, 1560.0, 5]},
+                1623: {'FUVA':[1625.0, 1795.0, 5], 'FUVB': [1435.0, 1605.0, 5]},
+                
+                # G130M
+                1222: {'FUVA':[1225.0, 1360.0, 5], 'FUVB': [1085.0, 1205.0, 20]},
+                1055: {'FUVA':[1065.0, 1185.0, 20],'FUVB': [910.0, 1030.0, 60]},
+                1096: {'FUVB':[950.0, 1070.0, 20]},
+                1291: {'FUVA':[1290.0, 1430.0, 5], 'FUVB': [1135.0, 1275.0, 5]},
+                1327: {'FUVA':[1325.0, 1470.0, 5], 'FUVB': [1170.0, 1315.0, 5]},
 
-            # G140L 
-            800 : {'FUVA':[920.0, 1800.0, 20]},
-            1105: {'FUVA':[1140.0, 1800.0, 20]},
-            1280: {'FUVA':[1280.0, 1800.0, 20],'FUVB': [1100.0, 1120.0, 20]}
+                # G140L 
+                800 : {'FUVA':[1115.0, 1915.0, 20]},
+                1105: {'FUVA':[1140.0, 2000.0, 20]},
+                1280: {'FUVA':[1280.0, 2000.0, 20],'FUVB': [1100.0, 1120.0, 20]}
+                },
+            'large':{
+                # G160M
+                1533:{'FUVA':[1535, 1705, 170], 'FUVB':[1345, 1515, 170]},
+                1577:{'FUVA':[1575, 1750, 175], 'FUVB':[1395, 1565, 170]},
+                1623:{'FUVA':[1625, 1745, 120], 'FUVB':[1435, 1605, 170]},
+
+                # G130M
+                1222:{'FUVA':[1225, 1360, 135], 'FUVB':[1085, 1205, 120]},
+                1055:{'FUVA':[1065, 1185, 120], 'FUVB':[910, 1030, 120]},
+                1096:{'FUVB':[950, 1070, 120]},
+                1291:{'FUVA':[1290, 1430, 140], 'FUVB':[1140, 1200, 60]},
+                1327:{'FUVA':[1325, 1470, 145], 'FUVB':[1230, 1315, 85]},
+
+                # G140L
+                800:{'FUVA':[915, 1915, 1000]},
+                1105:{'FUVA':[1300, 2000, 700]},
+                1280:{'FUVA':[1280, 2000, 720], 'FUVB':[1100, 1120, 20]}
+                }
             }
         
-        wavelengths = []
-        nets = []
-        stdevs = []
-        for i in range(self.nentries):
+        sizes = ['small', 'large']
 
-            wl_range = wl_info_dict[self.cenwaves[i]][self.segments[i]]
-            min_wl = wl_range[0]
-            max_wl = wl_range[1]
-            binsize = wl_range[2]
+        for size in sizes:
+            wavelengths = []
+            nets = []
+            stdevs = []
+            for i in range(self.nentries):
 
-            bins = np.arange(min_wl, max_wl, binsize)
-            nbins = len(bins) - 1
+                wl_range = wl_info_dict[size][self.cenwaves[i]][self.segments[i]]
+                min_wl = wl_range[0]
+                max_wl = wl_range[1]
+                binsize = wl_range[2]
 
-            x_index = np.where((self.wls[i] >= min_wl) & (self.wls[i] <= max_wl))
+                bins = np.arange(min_wl, max_wl, binsize)
 
-            # Determine the mean and STD for each bin
-            mean_net, edges, _ = binned_statistic(
-                self.wls[i][x_index],
-                self.nets[i][x_index],
-                "mean", bins=bins
-            )
-            std_net = binned_statistic(
-                self.wls[i][x_index],
-                self.nets[i][x_index],
-                np.std, bins=bins
-            )[0]
+                x_index = np.where((self.wls[i] >= min_wl) & (self.wls[i] <= max_wl))
 
-            wavelengths.append(edges[:-1]+np.diff(edges)/2)
-            nets.append(mean_net)
-            stdevs.append(std_net)
+                # Determine the mean and STD for each bin
+                mean_net, edges, _ = binned_statistic(
+                    self.wls[i][x_index],
+                    self.nets[i][x_index],
+                    "mean", bins=bins
+                )
+                std_net = binned_statistic(
+                    self.wls[i][x_index],
+                    self.nets[i][x_index],
+                    np.std, bins=bins
+                )[0]
 
-        self.wls = np.array(wavelengths, dtype=object)
-        self.nets = np.array(nets, dtype=object)
-        self.stdevs = np.array(stdevs, dtype=object)
+                wavelengths.append(edges[:-1]+np.diff(edges)/2)
+                nets.append(mean_net)
+                stdevs.append(std_net)
+
+                if size == 'small':
+                    self.wls_small = np.array(wavelengths, dtype=object)
+                    self.nets_small = np.array(nets, dtype=object)
+                    self.stdevs_small = np.array(stdevs, dtype=object)
+                else:
+                    self.wls_large = np.array(wavelengths, dtype=object)
+                    self.nets_large = np.array(nets, dtype=object)
+                    self.stdevs_large = np.array(stdevs, dtype=object)
 # --------------------------------------------------------------------------------#
     def get_refdata(self):
         """
