@@ -78,6 +78,24 @@ class FUVTDSBase:
         welp. stuff here
         """
 
+        # get indices
+        lp6_indx_wd308 = np.where((self.lps == 6) & (self.targs == 'WD0308-565'))
+        lp6_indx_gd71  = np.where((self.lps == 6) & (self.targs == 'GD71'))
+
+        lp4_indx_wd308 = np.where((self.lps == 4) & (self.targs == 'WD0308-565'))
+        lp4_indx_gd71  = np.where((self.lps == 4) & (self.targs == 'GD71'))
+
+        if (self.cenwaves > 1500) & (self.segments == 'FUVA'):
+            lp4_indx = lp4_indx_gd71
+            lp6_indx = lp6_indx_gd71
+        elif (self.cenwaves > 1500) & (self.segments == 'FUVB'):
+            lp4_indx = lp4_indx_wd308
+            lp6_indx = lp6_indx_wd308
+        else:
+            lp4_indx = lp4_indx_wd308
+
+
+
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
         """
