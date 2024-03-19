@@ -93,6 +93,15 @@ class FUVTDSBase:
             lp6_indx = lp6_indx_wd308
         else:
             lp4_indx = lp4_indx_wd308
+        
+        lp4_indx = lp4_indx[0]
+        lp6_indx = lp6_indx[0]
+
+        # Find the connection visit by closed date. Only a safe assumption for LP5 and LP6 where visits occur same day.
+        lp4_indx = np.asarray(lp4_indx)
+        idx = (np.abs(lp4_indx - lp6_indx[0])).argmin()
+
+        #for 
 
 
 
