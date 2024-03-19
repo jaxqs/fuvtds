@@ -62,6 +62,7 @@ class FUVTDSBase:
         self.reftime = Time(reftime, format="mjd").decimalyear
         self.get_hduinfo()
         self.bin_data()
+        self.scale_prep()
 
         # scale between LPs here
         if (6 in self.lps) & (4 in self.lps):
@@ -101,9 +102,57 @@ class FUVTDSBase:
         lp4_indx = np.asarray(lp4_indx)
         idx = (np.abs(lp4_indx - lp6_indx[0])).argmin()
 
-        #for 
+        for size in self.sizes:
+            for i, _ in enumerate(size['wls']):
+                size['scale_factor'][lp6_indx, i] = (size['nets'][lp4_indx[idx], i] / size['nets'][lp6_indx[0], 1])
+                size['scaled_nets'][lp6_indx, i]  = size['scaled_nets'][lp6_indx, i] * size['scale_factor'][lp6_indx, i]
+
+                # calculate the error
+                lp4_error = size['stdevs'][lp4_indx[-1], i]
+                lp4_data  = size['nets'][lp4_indx[-1], i]
+
+                lp6_error = size['stdevs'][lp6_indx[0], i]
+                lp6_data  = size['nets'][lp6_indx[0], i]
+
+                scale_factor_stev = self._error_prop_div(lp4_data, lp4_error, lp6_data, lp6_error)
+                scaled_stdev = np.sqrt(scale_factor_stev**2 * size['stdevs'][lp6_indx, i]**2 + size['nets'][lp6_indx, i]**2 * scale_factor_stev**2)
+
+                size['scaled_stdevs'][lp6_indx, i] = scaled_stdev
+            print ('+++ Scaling LP6 to LP4 using data from datasets: ', self.infiles[lp4_indx[idx]], self.infiles[lp6_indx[0]])
+
+# --------------------------------------------------------------------------------#
+    def scale_prep(self):
+
+        # scale stuff prep
+        self.scaled_stdevs_small = self.stdevs_small
+        self.scaled_factor_small = np.copy(self.nets_small)*0.+1.
+        self.scaled_nets_small   = np.copy(self.nets_small)
+
+        self.scaled_stdevs_large = self.stdevs_large
+        self.scaled_factor_large = np.copy(self.nets_large)*0.+1.
+        self.scaled_nets_large   = np.copy(self.nets_large)
 
 
+        sizes = {
+            'small': {
+                'wls': self.wls_small,
+                'nets': self.nets_small,
+                'stdevs': self.stdevs_small,
+                'scaled_stdevs': self.scaled_stdevs_small,
+                'scale_factor': self.scaled_factor_small,
+                'scaled_nets': self.scaled_nets_small
+            },
+            'large': {
+                'wls': self.wls_large,
+                'nets': self.nets_large,
+                'stdevs': self.stdevs_small,
+                'scaled_stdevs':  self.scaled_stdevs_large,
+                'scale_factor': self.scaled_factor_large,
+                'scaled_nets': self.scaled_nets_large
+            }
+        }
+
+        self.sizes = sizes
 
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
@@ -223,10 +272,12 @@ class FUVTDSBase:
                     self.wls_small = wls
                     self.nets_small = np.reshape(nets, (len(self.infiles), len(self.wls))) # [date, wl_bin]
                     self.stdevs_small = np.reshape(stdevs, (len(self.infiles), len(self.wls))) # [date, wl_bin]
+
                 else:
                     self.wls_large = wls
                     self.nets_large = np.reshape(nets, (len(self.infiles), len(self.wls))) # [date, wl_bin]
                     self.stdevs_large = np.reshape(stdevs, (len(self.infiles), len(self.wls))) # [date, wl_bin]
+
 # --------------------------------------------------------------------------------#
     def get_refdata(self):
         """
@@ -509,3 +560,8 @@ class FUVTDSBase:
             )
             hdu.close()
             return (x1d_table)
+        
+# --------------------------------------------------------------------------------#
+    def _error_prop_div(self, top, top_error, bottom, bottom_error):
+        stdev = np.sqrt((top_error/bottom)**2 + (top/(bottom**2)*bottom_error)**2)
+        return (stdev)
