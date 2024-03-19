@@ -214,14 +214,19 @@ class FUVTDSBase:
                 nets.append(mean_net)
                 stdevs.append(std_net)
 
+                wls = np.array(wavelengths, dtype=object)
+                nets = np.array(nets, dtype=object)
+                stdevs = np.array(stdevs, dtype=object)
+
+                # reshape the arrays 
                 if size == 'small':
-                    self.wls_small = np.array(wavelengths, dtype=object)
-                    self.nets_small = np.array(nets, dtype=object)
-                    self.stdevs_small = np.array(stdevs, dtype=object)
+                    self.wls_small = wls
+                    self.nets_small = np.reshape(nets, (len(self.infiles), len(self.wls))) # [date, wl_bin]
+                    self.stdevs_small = np.reshape(stdevs, (len(self.infiles), len(self.wls))) # [date, wl_bin]
                 else:
-                    self.wls_large = np.array(wavelengths, dtype=object)
-                    self.nets_large = np.array(nets, dtype=object)
-                    self.stdevs_large = np.array(stdevs, dtype=object)
+                    self.wls_large = wls
+                    self.nets_large = np.reshape(nets, (len(self.infiles), len(self.wls))) # [date, wl_bin]
+                    self.stdevs_large = np.reshape(stdevs, (len(self.infiles), len(self.wls))) # [date, wl_bin]
 # --------------------------------------------------------------------------------#
     def get_refdata(self):
         """
