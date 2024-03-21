@@ -57,16 +57,19 @@ class FUVTDSBase:
                 FUVTDS Monitor programs.
             breakpoints: all the TDS breakpoints by fractional year.
         """
+        self.cenwaves = [1533, 1577, 1623, 1291, 1327, 1222, 1105, 1280, 800, 1055, 1096]
         self.parse_infiles(PIDs, inventory)
         self.breakpoints = np.array(breakpoints)
         self.reftime = Time(reftime, format="mjd").decimalyear
-        self.get_hduinfo()
-        self.bin_data()
-        self.scale_prep()
+        data_dictionary = self.get_hduinfo(inventory)
+        self.small_dic = self.bin_data(data_dictionary, 'small')
+        self.large_dic = self.bin_data(data_dictionary, 'large')
+        #print(self.small_dic[1533]['FUVA'])
+        #self.scale_prep()
 
         # scale between LPs here
-        if (6 in self.lps) & (4 in self.lps):
-            self.scale_lp6_data()
+        #if (6 in self.lps) & (4 in self.lps):
+        #    self.scale_lp6_data()
 
 
         # after the scaling, get the reference data (first obs)
@@ -186,7 +189,7 @@ class FUVTDSBase:
         return(np.array(scaled_net, dtype=object), np.array(scaled_std, dtype=object))
 
 # --------------------------------------------------------------------------------#
-    def bin_data(self):
+    def bin_data(self, data_dic, size):
         """
         Bin the net counts in each wavelength bin for each file and segment and
         calculcate the standard deviation.
@@ -230,53 +233,71 @@ class FUVTDSBase:
                 }
             }
         
-        sizes = ['small', 'large']
+        dictionary = {}
 
-        for size in sizes:
-            wavelengths = []
-            nets = []
-            stdevs = []
-            for i in range(self.nentries):
+        for cenwave in self.cenwaves:
+            if cenwave not in dictionary.keys():
+                dictionary[cenwave] = {}
 
-                wl_range = wl_info_dict[size][self.cenwaves[i]][self.segments[i]]
+            for segment in data_dic[cenwave]:
+                if segment not in dictionary[cenwave].keys():
+                    dictionary[cenwave][segment] = {
+                        'binned_net': [],
+                        'binned_wl' : [],
+                        'stdev': [],
+                        'grating': [],
+                        'lp': [],
+                        'target': [],
+                        'rootname': [],
+                        'date': [],
+                        'infiles': []
+                    }
+                
+                wl_range = wl_info_dict[size][cenwave][segment]
                 min_wl = wl_range[0]
                 max_wl = wl_range[1]
                 binsize = wl_range[2]
 
                 bins = np.arange(min_wl, max_wl, binsize)
 
-                x_index = np.where((self.wls[i] >= min_wl) & (self.wls[i] <= max_wl))
+                for i, wl in enumerate(data_dic[cenwave][segment]['wavelength']):
+                    x_index = np.where((wl >= min_wl) & (wl <= max_wl))
 
-                # Determine the mean and STD for each bin
-                mean_net, edges, _ = binned_statistic(
-                    self.wls[i][x_index],
-                    self.nets[i][x_index],
-                    "mean", bins=bins
-                )
-                std_net = binned_statistic(
-                    self.wls[i][x_index],
-                    self.nets[i][x_index],
-                    np.std, bins=bins
-                )[0]
+                    # Determine the mean and STD for each bin
+                    mean_net, edges, _ = binned_statistic(
+                        wl[x_index],
+                        data_dic[cenwave][segment]['net'][i][x_index],
+                        "mean", bins=bins
+                    )
+                    std_net = binned_statistic(
+                        wl[x_index],
+                        data_dic[cenwave][segment]['net'][i][x_index],
+                        np.std, bins=bins
+                    )[0]
 
-                wavelengths.append(edges[:-1]+np.diff(edges)/2)
-                nets.append(mean_net)
-                stdevs.append(std_net)
+                    dictionary[cenwave][segment]['binned_net'].append(mean_net)
+                    dictionary[cenwave][segment]['stdev'].append(std_net)
 
-                wls = np.array(wavelengths, dtype=object)
-                nets = np.array(nets, dtype=object)
-                stdevs = np.array(stdevs, dtype=object)
+                dictionary[cenwave][segment]['binned_wl'] = np.array(edges[:-1]+np.diff(edges)/2)
+                dictionary[cenwave][segment]['grating'] = data_dic[cenwave][segment]['grating']
+                dictionary[cenwave][segment]['lp'] = data_dic[cenwave][segment]['lp']
+                dictionary[cenwave][segment]['target'] = data_dic[cenwave][segment]['target']
+                dictionary[cenwave][segment]['rootname'] = data_dic[cenwave][segment]['rootname']
+                dictionary[cenwave][segment]['date'] = data_dic[cenwave][segment]['date']
+                dictionary[cenwave][segment]['infiles'] = data_dic[cenwave][segment]['infiles']
 
-                # reshape the arrays 
-                if size == 'small':
-                    self.wls_small = wls
-                    self.nets_small = np.reshape(nets, (len(self.infiles), len(self.wls))) # [date, wl_bin]
-                    self.stdevs_small = np.reshape(stdevs, (len(self.infiles), len(self.wls))) # [date, wl_bin]
-
-                else:
-                    self.wls_large = wls
-                    self.nets_large = np.reshape(nets, (len(self.infiles), len(self.wls))) # [date, wl_bin]
-                    self.stdevs_large = np.reshape(stdevs, (len(self.infiles), len(self.wls))) # [date, wl_bin]
+        # reformat
+        for cenwave in self.cenwaves:
+            for segment in dictionary[cenwave]:
+                dictionary[cenwave][segment]['binned_net'] = np.reshape(
+                    dictionary[cenwave][segment]['binned_net'],
+                    (len(dictionary[cenwave][segment]['infiles']),
+                    len(dictionary[cenwave][segment]['binned_wl']))) # [date, wl_bin]
+                dictionary[cenwave][segment]['stdev'] = np.reshape(
+                    dictionary[cenwave][segment]['stdev'],
+                    (len(dictionary[cenwave][segment]['infiles']),
+                    len(dictionary[cenwave][segment]['binned_wl']))) # [date, wl_bin]
+        return (dictionary)
 
 # --------------------------------------------------------------------------------#
     def get_refdata(self):
@@ -299,79 +320,46 @@ class FUVTDSBase:
         self.ref = ref_dict
 
 # --------------------------------------------------------------------------------#
-    def get_hduinfo(self):
-        """
-        Get necessary information from the input files' HDU headers and data extensions.
-        """
+    def get_hduinfo(self, csv_file):
 
-        nets = []
-        wls = []
-        cenwaves = []
-        gratings = []
-        segments = []
-        nentries = []
-        lps = []
-        targets = []
-        rootnames = []
-        date_dec = []
+        inventory = pd.read_csv(csv_file)
 
-        # NOT NEEDED IN MONITOR. THIS IS A BUG CHECK. CAN BE REMOVED.
-        print(f'in get_hdu before for loops: {len(self.infiles)}')
+        data_dic = {}
 
-        for i in range(len(self.infiles)):
-            with fits.open(self.infiles[i], memmap=False) as hdulist:
-                data = hdulist[1].data
-                hdr0 = hdulist[0].header
-                hdr1 = hdulist[1].header
+        for cenwave in self.cenwaves:
+            if cenwave not in data_dic.keys():
+                data_dic[cenwave] = {}
+            
+            files = np.array(inventory['file_path'][(inventory['cenwave'] == cenwave)]).flatten()
+            for file in files:
+                with fits.open(file, memmap=False) as hdulist:
+                    hdr0 = hdulist[0].header
+                    hdr1 = hdulist[1].header
+                    data = hdulist[1].data
 
-                # if the x1d file is a single segment, try this
-                if hdr0["segment"] != 'BOTH':
-                    if hdr0["cenwave"] == 1230:
-                        cenwaves.append(1280)
-                    else:
-                        cenwaves.append(hdr0["cenwave"])
-                    gratings.append(hdr0["opt_elem"])
-                    nets.append(data["net"][data["dq_wgt"] != 0])
-                    wls.append(data["wavelength"][data["dq_wgt"] != 0])
-                    segments.append(hdr0["segment"])
-                    nentries.append(self.infiles[i])
-                    lps.append(hdr0['LIFE_ADJ'])
-                    targets.append(hdr0['TARGNAME'])
-                    rootnames.append(hdr0['rootname'])
-                    date_dec.append(Time(hdr1['EXPSTART'], format="mjd").decimalyear)
+                    for i, segment in enumerate(data['segment']):
+                        if segment not in data_dic[cenwave].keys():
+                            data_dic[cenwave][segment] = {
+                                'net': [],
+                                'wavelength': [],
+                                'grating': [],
+                                'lp': [],
+                                'target': [],
+                                'rootname': [],
+                                'date': [],
+                                'infiles': []
+                            }
+                        
+                        data_dic[cenwave][segment]['net'].append(np.array(data['net'][i][data['dq_wgt'][i] != 0]))
+                        data_dic[cenwave][segment]['wavelength'].append(np.array(data['wavelength'][i][data['dq_wgt'][i] != 0]))
 
-                # if the x1d file has BOTH segments, do this instead
-                else:
-                    FUV = ['FUVA', 'FUVB']
-                    for j, seg in enumerate(FUV):
-                        if hdr0["cenwave"] == 1230:
-                            cenwaves.append(1280)
-                        else:
-                            cenwaves.append(hdr0["cenwave"])
-                        gratings.append(hdr0["opt_elem"])
-                        nets.append(data["net"][j][data["dq_wgt"][j] != 0])
-                        wls.append(data["wavelength"][j][data["dq_wgt"][j] != 0])
-                        segments.append(seg)
-                        nentries.append(self.infiles[i])
-                        lps.append(hdr0['LIFE_ADJ'])
-                        targets.append(hdr0['TARGNAME'])
-                        rootnames.append(hdr0['rootname'])
-                        date_dec.append(Time(hdr1['EXPSTART'], format="mjd").decimalyear)
-
-        self.nets = np.array(nets, dtype=object)
-        self.wls = np.array(wls, dtype=object)
-        self.cenwaves = np.array(cenwaves)
-        self.gratings = np.array(gratings)
-        self.segments = np.array(segments)
-        self.nentries = len(nentries)
-        self.lps = np.array(lps)
-        self.targs = np.array(targets)
-        self.rootnames = np.array(rootnames)
-        self.date_dec = np.array(date_dec)
-        self.infiles = np.array(nentries)
-
-        # NOT NEEDED IN MONITOR. THIS IS A BUG CHGECK CAN BE REMOVED
-        print(f'in get_hdu after for loops: {len(self.nets)}')
+                        data_dic[cenwave][segment]['grating'].append(hdr0['opt_elem'])
+                        data_dic[cenwave][segment]['lp'].append(hdr0['life_adj'])
+                        data_dic[cenwave][segment]['target'].append(hdr0['targname'])
+                        data_dic[cenwave][segment]['rootname'].append(hdr0['rootname'])
+                        data_dic[cenwave][segment]['date'].append(hdr1['date-obs'])
+                        data_dic[cenwave][segment]['infiles'].append(file)
+        return (data_dic)
 
 # --------------------------------------------------------------------------------#
     def parse_infiles(self, PIDs, csv_file, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
@@ -430,15 +418,6 @@ class FUVTDSBase:
            else:
                tables.to_csv(csv_file)
                print(f'{csv_file} was created.')
-
-       # use the inventory csv file to get the x1d paths again
-       inventory = pd.read_csv(csv_file)
-
-       # change to array and flatten to be used in the monitor
-       x1d_paths = np.array(inventory['file_path']).flatten()
-
-       # set infiles to all these x1d files.
-       self.infiles = x1d_paths
 # --------------------------------------------------------------------------------#
     def _get_x1ds(self, COSMO, all_programs, pattern):
         """
@@ -537,17 +516,21 @@ class FUVTDSBase:
                 hdu[0].header['fppos'],
                 hdu[1].header['expstart']) == True,
             'wl': len(hdu[1].data['wavelength']) != 0,
-            'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01'))
+            'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01')),
+            'cenwave': (hdu[0].header['cenwave'] in self.cenwaves) | (hdu[0].header['cenwave'] == 1230)
         }
 
         # if-statement to filter out exposures we do not use and place the datasets we DO use
         #into a dataframe to then be turned into a csv file data product.
-        if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']) & (criteria['lp4']):
+        if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']) & (criteria['lp4']) & (criteria['cenwave']):
+            if hdu[0].header['cenwave'] == 1230:
+                cenwave = 1280
+            else: cenwave = hdu[0].header['cenwave']
             x1d_table = pd.DataFrame(
                 {
                     'rootname': [hdu[0].header['rootname']],
                     'opt_elem': [hdu[0].header['opt_elem']],
-                    'cenwave': [hdu[0].header['cenwave']],
+                    'cenwave': [cenwave],
                     'segment': [hdu[0].header['segment']],
                     'fppos': [hdu[0].header['fppos']],
                     'life_adj': [hdu[0].header['life_adj']],
