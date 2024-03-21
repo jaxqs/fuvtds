@@ -270,37 +270,6 @@ class FUVTDSBase:
                 #if (3 in dictionary[cenwave][segment]['lp']) & (2 in dictionary[cenwave][segment]['lp']): 
 
 # --------------------------------------------------------------------------------#
-    def calc_ratios(self):
-        """
-        Scale the NET array and STDEV array of each input dataset to the reference
-        dataset (first dataset of the same cenwave and segment).
-
-        Note: Should I interpolate the NET values to the wavelength scale of its
-        reference dataset (first in time)?
-        """
-        scaled_net = []
-        scaled_std = []
-
-        for i in range(self.nentries):
-
-            # scale the NET array to its respective reference dataset
-            ref_net = self.ref[self.cenwaves[i]][self.segments[i]]["net"]
-            ref_net.astype(np.float64)
-            ratio_net = self.nets[i]/ ref_net
-            ratio_net = np.nan_to_num(ratio_net)
-            scaled_net.append(ratio_net)
-
-            # scale the STDEV array to its respective reference dataset
-            # be sure to propagate errors correctly
-            ref_std = self.ref[self.cenwaves[i]][self.segments[i]]["stdev"]
-            ref_std.astype(np.float64)
-            ratio_std = (np.sqrt((ref_std/ref_net)**2 + (self.stdevs[i]/self.nets[i])**2)) * ratio_net
-            ratio_std = np.nan_to_num(ratio_std)
-            scaled_std.append(ratio_std)
-        
-        return(np.array(scaled_net, dtype=object), np.array(scaled_std, dtype=object))
-
-# --------------------------------------------------------------------------------#
     def bin_data(self, data_dic, size):
         """
         Bin the net counts in each wavelength bin for each file and segment and
