@@ -193,6 +193,82 @@ class FUVTDSBase:
                             i, dictionary[cenwave][segment], lp4_indx, lp5_indx
                         )
                     print(f"+++ Scaling LP5 to LP4 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[a]]} {dictionary[cenwave][segment]['infiles'][lp5_indx[0]]}")
+                
+
+
+                if (4 in dictionary[cenwave][segment]['lp']) & (3 in dictionary[cenwave][segment]['lp']):
+                    lp4_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 4) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
+                    lp4_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 4) &
+                                            (dictionary[cenwave][segment]['target'] == 'GD71'))
+                    
+                    lp3_indx1_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565') &
+                                            (dictionary[cenwave][segment]['date'] < 2019.0))
+                    lp3_indx1_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
+                                            (dictionary[cenwave][segment]['target'] == 'GD71')&
+                                            (dictionary[cenwave][segment]['date'] < 2019.0))
+                    
+                    lp3_indx2_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565') &
+                                            (dictionary[cenwave][segment]['date'] > 2019.0))
+                    lp3_indx2_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
+                                            (dictionary[cenwave][segment]['target'] == 'GD71')&
+                                            (dictionary[cenwave][segment]['date'] > 2019.0))
+                    
+
+                    if (cenwave > 1500) & (segment == 'FUVA'):
+                        lp3_indx1 = lp3_indx1_gd71
+                        lp3_indx2 = lp3_indx2_gd71
+                        lp4_indx  = lp4_indx_gd71
+                    else: 
+                        lp3_indx1 = lp3_indx1_wd308
+                        lp3_indx2 = lp3_indx2_wd308
+                        lp4_indx  = lp4_indx_wd308
+
+                    lp3_indx1 = lp3_indx1[0] #LP3 indicies before LP3->LP4->LP3.
+                    lp3_indx2 = lp3_indx2[0] #LP3 indicies after LP3->LP4->LP3.
+                    lp4_indx  = np.concatenate((lp4_indx[0], lp3_indx2)) #lp4_indx needs to contain the post 2021 lp3_indx
+
+                    for i, _ in enumerate(dictionary[cenwave][segment]['binned_wl']):
+                        #Scale LP4 and LP3 after LP4->LP3
+                        if cenwave != 800:
+                            dictionary[cenwave][segment]['scale_factor'][lp4_indx, i] = (
+                                dictionary[cenwave][segment]['binned_net'][lp4_indx[0]-1, i] /
+                                dictionary[cenwave][segment]['binned_net'][lp4_indx[0], i]
+                            )
+                            dictionary[cenwave][segment]['scaled_net'][lp4_indx, i] = (
+                                dictionary[cenwave][segment]['scaled_net'][lp4_indx, i] *
+                                dictionary[cenwave][segment]['scale_factor'][lp4_indx, i]
+                            )
+                            # calculate error
+                            dictionary[cenwave][segment]['scaled_stdev'][lp4_indx, i] = calc_error(
+                                i, dictionary[cenwave][segment], lp3_indx1, lp4_indx
+                            )
+                            print(f"+++ Scaling LP4 to LP3 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1]} {dictionary[cenwave][segment]['infiles'][lp4_indx[0]]}")
+
+                            # Scale LP3 after LP4 -> LP3
+                            if len(lp3_indx2) > 0:
+                                dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i] = (dictionary[cenwave][segment]['binned_net'][lp4_indx[0], i] / dictionary[cenwave][segment]['binned_net'][lp4_indx[0]-1, i])
+                                dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] = dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] * dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i]
+
+                                # calculate error
+                                dictionary[cenwave][segment]['scaled_stdev'][lp3_indx2, i] = calc_error(
+                                    i, dictionary[cenwave][segment], lp4_indx, lp3_indx2
+                                )
+                                print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp4_indx[0]], dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1])
+                        elif cenwave == 800:
+                            print(lp3_indx2)
+                            dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i] = (dictionary[cenwave][segment]['binned_net'][lp3_indx2[0]+1, i] / dictionary[cenwave][segment]['binned_net'][lp3_indx2[0], i])
+                            dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] = dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] * dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i]
+                            # calculate error
+                            dictionary[cenwave][segment]['scaled_stdev'][lp3_indx2, i] = calc_error(
+                                i, dictionary[cenwave][segment], lp4_indx, lp3_indx2
+                            )
+
+                            print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp3_indx2[0]+1], dictionary[cenwave][segment]['infiles'][lp3_indx2[0]])
+
+                if (3 in dictionary[cenwave][segment]['lp']) & (2 in dictionary[cenwave][segment]['lp']): 
 
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
