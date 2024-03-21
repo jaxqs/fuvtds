@@ -64,10 +64,9 @@ class FUVTDSBase:
         data_dictionary = self.get_hduinfo(inventory)
         self.small_dic = self.bin_data(data_dictionary, 'small')
         self.large_dic = self.bin_data(data_dictionary, 'large')
-        #print(self.small_dic[1533]['FUVA'])
-        #self.scale_prep()
 
         # scale between LPs here
+        self.scale_lps()
         #if (6 in self.lps) & (4 in self.lps):
         #    self.scale_lp6_data()
 
@@ -76,6 +75,12 @@ class FUVTDSBase:
         #self.get_refdata()
         #scaled_net, scaled_std = self.calc_ratios()
             
+# --------------------------------------------------------------------------------#
+    def scale_lps(self):
+        """
+        explain here <3
+        """
+
 # --------------------------------------------------------------------------------#
     def scale_lp6_data(self):
         """
@@ -123,39 +128,6 @@ class FUVTDSBase:
                 size['scaled_stdevs'][lp6_indx, i] = scaled_stdev
             print ('+++ Scaling LP6 to LP4 using data from datasets: ', self.infiles[lp4_indx[idx]], self.infiles[lp6_indx[0]])
 
-# --------------------------------------------------------------------------------#
-    def scale_prep(self):
-
-        # scale stuff prep
-        self.scaled_stdevs_small = self.stdevs_small
-        self.scaled_factor_small = np.copy(self.nets_small)*0.+1.
-        self.scaled_nets_small   = np.copy(self.nets_small)
-
-        self.scaled_stdevs_large = self.stdevs_large
-        self.scaled_factor_large = np.copy(self.nets_large)*0.+1.
-        self.scaled_nets_large   = np.copy(self.nets_large)
-
-
-        sizes = {
-            'small': {
-                'wls': self.wls_small,
-                'nets': self.nets_small,
-                'stdevs': self.stdevs_small,
-                'scaled_stdevs': self.scaled_stdevs_small,
-                'scale_factor': self.scaled_factor_small,
-                'scaled_nets': self.scaled_nets_small
-            },
-            'large': {
-                'wls': self.wls_large,
-                'nets': self.nets_large,
-                'stdevs': self.stdevs_small,
-                'scaled_stdevs':  self.scaled_stdevs_large,
-                'scale_factor': self.scaled_factor_large,
-                'scaled_nets': self.scaled_nets_large
-            }
-        }
-
-        self.sizes = sizes
 
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
@@ -286,17 +258,22 @@ class FUVTDSBase:
                 dictionary[cenwave][segment]['date'] = data_dic[cenwave][segment]['date']
                 dictionary[cenwave][segment]['infiles'] = data_dic[cenwave][segment]['infiles']
 
-        # reformat
+        # reformat + add scaled components
         for cenwave in self.cenwaves:
             for segment in dictionary[cenwave]:
                 dictionary[cenwave][segment]['binned_net'] = np.reshape(
                     dictionary[cenwave][segment]['binned_net'],
                     (len(dictionary[cenwave][segment]['infiles']),
                     len(dictionary[cenwave][segment]['binned_wl']))) # [date, wl_bin]
+                dictionary[cenwave][segment]['scaled_net'] = dictionary[cenwave][segment]['binned_net']
+
                 dictionary[cenwave][segment]['stdev'] = np.reshape(
                     dictionary[cenwave][segment]['stdev'],
                     (len(dictionary[cenwave][segment]['infiles']),
                     len(dictionary[cenwave][segment]['binned_wl']))) # [date, wl_bin]
+                dictionary[cenwave][segment]['scaled_stdev'] = dictionary[cenwave][segment]['stdev']
+
+                dictionary[cenwave][segment]['scale_factor'] = np.copy(dictionary[cenwave][segment]['binned_net'])*0.0+1.0
         return (dictionary)
 
 # --------------------------------------------------------------------------------#
