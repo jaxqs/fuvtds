@@ -62,11 +62,11 @@ class FUVTDSBase:
         self.breakpoints = np.array(breakpoints)
         self.reftime = Time(reftime, format="mjd").decimalyear
         data_dictionary = self.get_hduinfo(inventory)
-        self.small_dic = self.bin_data(data_dictionary, 'small')
-        self.large_dic = self.bin_data(data_dictionary, 'large')
+        small_dic = self.bin_data(data_dictionary, 'small')
+        large_dic = self.bin_data(data_dictionary, 'large')
 
         # scale between LPs here
-        self.scale_lps()
+        self.scale_lps(large_dic)
         #if (6 in self.lps) & (4 in self.lps):
         #    self.scale_lp6_data()
 
@@ -76,58 +76,81 @@ class FUVTDSBase:
         #scaled_net, scaled_std = self.calc_ratios()
             
 # --------------------------------------------------------------------------------#
-    def scale_lps(self):
+    def scale_lps(self, dictionary):
         """
         explain here <3
         """
 
-# --------------------------------------------------------------------------------#
-    def scale_lp6_data(self):
-        """
-        welp. stuff here
-        """
-
-        # get indices
-        lp6_indx_wd308 = np.where((self.lps == 6) & (self.targs == 'WD0308-565'))
-        lp6_indx_gd71  = np.where((self.lps == 6) & (self.targs == 'GD71'))
-
-        lp4_indx_wd308 = np.where((self.lps == 4) & (self.targs == 'WD0308-565'))
-        lp4_indx_gd71  = np.where((self.lps == 4) & (self.targs == 'GD71'))
-
-        if (self.cenwaves > 1500) & (self.segments == 'FUVA'):
-            lp4_indx = lp4_indx_gd71
-            lp6_indx = lp6_indx_gd71
-        elif (self.cenwaves > 1500) & (self.segments == 'FUVB'):
-            lp4_indx = lp4_indx_wd308
-            lp6_indx = lp6_indx_wd308
-        else:
-            lp4_indx = lp4_indx_wd308
+        def find_nearest(array, value):
+            array = np.asarray(array)
+            idx = (np.abs(array - value)).argmin()
+            return (idx)
         
-        lp4_indx = lp4_indx[0]
-        lp6_indx = lp6_indx[0]
+        def calc_error(i, dic_set, first_index, second_index):
+            first_error = dic_set['stdev'][first_index[-1], i]
+            first_data  = dic_set['binned_net'][first_index[-1], i]
 
-        # Find the connection visit by closed date. Only a safe assumption for LP5 and LP6 where visits occur same day.
-        lp4_indx = np.asarray(lp4_indx)
-        idx = (np.abs(lp4_indx - lp6_indx[0])).argmin()
+            second_error = dic_set['stdev'][second_index[0], i]
+            second_data  = dic_set['binned_net'][second_index[0], i]
 
-        for size in self.sizes:
-            for i, _ in enumerate(size['wls']):
-                size['scale_factor'][lp6_indx, i] = (size['nets'][lp4_indx[idx], i] / size['nets'][lp6_indx[0], 1])
-                size['scaled_nets'][lp6_indx, i]  = size['scaled_nets'][lp6_indx, i] * size['scale_factor'][lp6_indx, i]
+            scale_factor_stdev = np.sqrt(
+                (first_error/second_data)**2 +
+                (first_data/(second_data**2)*second_error)**2
+                )
+            stdev = np.sqrt(
+                dic_set['scale_factor'][second_index, i]**2 * 
+                dic_set['stdev'][second_index, i]**2 +
+                dic_set['binned_net'][second_index, i]**2 *
+                scale_factor_stdev
+            )
+            return (stdev)
 
-                # calculate the error
-                lp4_error = size['stdevs'][lp4_indx[-1], i]
-                lp4_data  = size['nets'][lp4_indx[-1], i]
+        for cenwave in dictionary:
+            for segment in dictionary[cenwave]:
+                if (6 in dictionary[cenwave][segment]['lp']) & (4 in dictionary[cenwave][segment]['lp']):
+                    
+                    lp6_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 6) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
+                    lp6_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 6) &
+                                            (dictionary[cenwave][segment]['target'] == 'GD71'))
+                    
+                    lp4_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 4) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
+                    lp4_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 4) &
+                                            (dictionary[cenwave][segment]['target'] == 'GD71'))
+                    
+                    if (cenwave > 1500) & (segment == 'FUVA'):
+                        lp4_indx = lp4_indx_gd71
+                        lp6_indx = lp6_indx_gd71
+                    else: 
+                        lp4_indx = lp4_indx_wd308
+                        lp6_indx = lp6_indx_wd308
 
-                lp6_error = size['stdevs'][lp6_indx[0], i]
-                lp6_data  = size['nets'][lp6_indx[0], i]
+                    lp4_indx = lp4_indx[0]
+                    lp6_indx = lp6_indx[0]
 
-                scale_factor_stev = self._error_prop_div(lp4_data, lp4_error, lp6_data, lp6_error)
-                scaled_stdev = np.sqrt(scale_factor_stev**2 * size['stdevs'][lp6_indx, i]**2 + size['nets'][lp6_indx, i]**2 * scale_factor_stev**2)
+                    #Find the connection visit by closest date. Only a safe assumption for LP5 and 
+                    #LP6 where the visits happened on the same day.
+                    print(dictionary[cenwave][segment]['date'][lp6_indx[0]])
+                    a = find_nearest(dictionary[cenwave][segment]['date'][lp4_indx], 
+                                     dictionary[cenwave][segment]['date'][lp6_indx[0]])
 
-                size['scaled_stdevs'][lp6_indx, i] = scaled_stdev
-            print ('+++ Scaling LP6 to LP4 using data from datasets: ', self.infiles[lp4_indx[idx]], self.infiles[lp6_indx[0]])
-
+                    for i, _ in enumerate(dictionary[cenwave][segment]['binned_wl']):
+                        #Scale LP6 data
+                        dictionary[cenwave][segment]['scale_factor'][lp6_indx, i] = (
+                            dictionary[cenwave][segment]['binned_net'][lp4_indx[a], i] /
+                            dictionary[cenwave][segment]['binned_net'][lp6_indx[0], i]
+                        )
+                        dictionary[cenwave][segment]['scaled_net'][lp6_indx, i] = (
+                            dictionary[cenwave][segment]['scaled_net'][lp6_indx, i] *
+                            dictionary[cenwave][segment]['scale_factor'][lp6_indx, i]
+                        )
+                        
+                        # calculate error
+                        dictionary[cenwave][segment]['scaled_stdev'][lp6_indx, i] = calc_error(
+                            i, dictionary[cenwave][segment], lp4_indx, lp6_indx
+                        )
+                    print(f"+++ Scaling LP6 to LP4 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[a]]} {dictionary[cenwave][segment]['infiles'][lp6_indx[0]]}")
 
 # --------------------------------------------------------------------------------#
     def calc_ratios(self):
@@ -334,8 +357,18 @@ class FUVTDSBase:
                         data_dic[cenwave][segment]['lp'].append(hdr0['life_adj'])
                         data_dic[cenwave][segment]['target'].append(hdr0['targname'])
                         data_dic[cenwave][segment]['rootname'].append(hdr0['rootname'])
-                        data_dic[cenwave][segment]['date'].append(hdr1['date-obs'])
+                        data_dic[cenwave][segment]['date'].append(Time(hdr1['date-obs'], format='fits').decimalyear)
                         data_dic[cenwave][segment]['infiles'].append(file)
+
+        # change to np.array
+        for cenwave in data_dic:
+            for segment in data_dic[cenwave]:
+                data_dic[cenwave][segment]['grating'] = np.array(data_dic[cenwave][segment]['grating'])
+                data_dic[cenwave][segment]['lp'] = np.array(data_dic[cenwave][segment]['lp'])
+                data_dic[cenwave][segment]['target'] = np.array(data_dic[cenwave][segment]['target'])
+                data_dic[cenwave][segment]['rootname'] = np.array(data_dic[cenwave][segment]['rootname'])
+                data_dic[cenwave][segment]['date'] = np.array(data_dic[cenwave][segment]['date'])
+                data_dic[cenwave][segment]['infiles'] = np.array(data_dic[cenwave][segment]['infiles'])
         return (data_dic)
 
 # --------------------------------------------------------------------------------#
