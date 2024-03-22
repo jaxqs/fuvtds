@@ -66,10 +66,10 @@ class FUVTDSBase:
         large_dic = self.bin_data(data_dictionary, 'large')
 
         # scale between LPs here
-        self.scale_lps(large_dic)
-        #if (6 in self.lps) & (4 in self.lps):
-        #    self.scale_lp6_data()
+        self.scale_lps(small_dic)
+        #self.scale_lps(large_dic)
 
+        # scale all to one
 
         # after the scaling, get the reference data (first obs)
         #self.get_refdata()
@@ -245,7 +245,7 @@ class FUVTDSBase:
                             dictionary[cenwave][segment]['scaled_stdev'][lp4_indx, i] = calc_error(
                                 i, dictionary[cenwave][segment], lp3_indx1, lp4_indx
                             )
-                            print(f"+++ Scaling LP4 to LP3 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1]} {dictionary[cenwave][segment]['infiles'][lp4_indx[0]]}")
+                            #print(f"+++ Scaling LP4 to LP3 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1]} {dictionary[cenwave][segment]['infiles'][lp4_indx[0]]}")
 
                             # Scale LP3 after LP4 -> LP3
                             if len(lp3_indx2) > 0:
@@ -256,7 +256,7 @@ class FUVTDSBase:
                                 dictionary[cenwave][segment]['scaled_stdev'][lp3_indx2, i] = calc_error(
                                     i, dictionary[cenwave][segment], lp4_indx, lp3_indx2
                                 )
-                                print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp4_indx[0]], dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1])
+                                #print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp4_indx[0]], dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1])
                         elif cenwave == 800:
                             dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i] = (dictionary[cenwave][segment]['binned_net'][lp3_indx2[0]+1, i] / dictionary[cenwave][segment]['binned_net'][lp3_indx2[0], i])
                             dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] = dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] * dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i]
@@ -265,7 +265,7 @@ class FUVTDSBase:
                                 i, dictionary[cenwave][segment], lp4_indx, lp3_indx2
                             )
 
-                            print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp3_indx2[0]+1], dictionary[cenwave][segment]['infiles'][lp3_indx2[0]])
+                            #print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp3_indx2[0]+1], dictionary[cenwave][segment]['infiles'][lp3_indx2[0]])
 
                 if (3 in dictionary[cenwave][segment]['lp']) & (2 in dictionary[cenwave][segment]['lp']):
 
@@ -305,7 +305,50 @@ class FUVTDSBase:
                             i, dictionary[cenwave][segment], lp2_indx, lp3_indx
                         )
                     print(f"+++ Scaling LP3 to LP2 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp2_indx[-1]]} {dictionary[cenwave][segment]['infiles'][lp3_indx[0]]}")
+                
 
+                if (2 in dictionary[cenwave][segment]['lp']) & (1 in dictionary[cenwave][segment]['lp']):
+                    lp2_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 2) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
+                    lp2_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 2) &
+                                            (dictionary[cenwave][segment]['target'] == 'GD71'))
+                    
+                    lp1_indx_wd1057 = np.where((dictionary[cenwave][segment]['lp'] == 1) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD1057+719'))
+                    lp1_indx_wd0947 = np.where((dictionary[cenwave][segment]['lp'] == 1) &
+                                            (dictionary[cenwave][segment]['target'] == 'WD0947+857'))
+                    
+                    if (cenwave > 1500) & (segment == 'FUVA'):
+                        lp1_indx = lp1_indx_wd1057
+                        lp2_indx  = lp2_indx_gd71
+                    elif (cenwave > 1500) & (segment == 'FUVB'):
+                        lp1_indx = lp1_indx_wd1057
+                        lp2_indx = lp2_indx_wd308
+                    else: 
+                        lp1_indx = lp1_indx_wd0947
+                        lp2_indx  = lp2_indx_wd308
+                    
+                    lp1_indx = lp1_indx[0]
+                    lp2_indx  = lp2_indx[0]
+
+                    for i, _ in enumerate(dictionary[cenwave][segment]['binned_wl']):
+                        # Scale LP2
+                        dictionary[cenwave][segment]['scale_factor'][lp2_indx, i] = (
+                            dictionary[cenwave][segment]['binned_net'][lp1_indx[-1], i] /
+                            dictionary[cenwave][segment]['binned_net'][lp2_indx[0], i]
+                        )
+                        dictionary[cenwave][segment]['scaled_net'][lp2_indx, i] = (
+                            dictionary[cenwave][segment]['scaled_net'][lp2_indx, i] *
+                            dictionary[cenwave][segment]['scale_factor'][lp2_indx, i]
+                        )
+                        
+                        # calculate error
+                        dictionary[cenwave][segment]['scaled_stdev'][lp2_indx, i] = calc_error(
+                            i, dictionary[cenwave][segment], lp1_indx, lp2_indx
+                        )
+                    print(f"+++ Scaling LP2 to LP1 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp1_indx[-1]]} {dictionary[cenwave][segment]['infiles'][lp2_indx[0]]}")
+
+        return (dictionary)
 # --------------------------------------------------------------------------------#
     def bin_data(self, data_dic, size):
         """
