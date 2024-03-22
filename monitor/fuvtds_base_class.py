@@ -25,27 +25,26 @@ class FUVTDSBase:
     conduct a FUVTDS monitor analysis.
 
     Attributes:
-        infiles (array-like): files organized by date and cleaned, by segment.
-        date_dec (array-like): the decimal years of all the files by chronological order, by segment.
-        breakpoints (array-like): all the TDS breakpoints by fractional year.
+        cenwaves (list): The central wavelength modes used in routine FUV TDS monitoring.
+        breakpoints (array-like): All the TDS breakpoints by fractional year.
         reftime (float.64): The decimal year of the reftime.
-        nentries (int): number of datasets, by segment.
-        rootnames (array-like): Rootnames of all input x1d files, by segment.
-
-
-        ADD SMALL AND LARGE DIFFERENCES HERE
-        nets (array-like): binned NET array for each x1d file, per segment.
-        wls (array-like): binned  WAVELENGTH array for each x1d file, per segment.
-        stdevs (array-like): binned standard deviation of the NET array binning.
-        gratings (array-like): OPT_ELEM keyword for each x1d file, per segment.
-
-
-        segments (array-like): SEGMENT keyword for each x1d file, per segment.
-        nentries (int): the amount of entries of each x1d file, per segment.
-        lps (array-like): the LIFE_ADJ keyword for each x1d file, per segment.
-        targs (array-like): the TARGNAME keyword for each x1d file, per segment.
-        ref (dict): Nested dictionary of NET, WAVELENGTH, and filename for each
-                reference (first in time) dataset's cenwave.
+        small / large (dictionary): A nestled dictionary made from the small wavelength-bins,
+                            organized by cenwave and then segment. ie small[1533][FUVA]
+            binned_net (array-like): binned NET array for each x1d file, per segment.
+            binned_wl (array-like): binned WAVELENGTH array for each x1d file, per segment.
+            stdev (array-like): binned standard deviation of the NET array binning.
+            grating (array-like): OPT_ELEM keyword for each x1d file, per segment.
+            lp (array-like): LIFE_ADJ keyword for each x1d file, per segment.
+            target (array-like): TARGNAME keyword for each x1d file, per segment.
+            rootname (array-like): Rootnames of all input x1d files used for that cenwave and segment.
+            date (array-like): Decimal year date of the time the exposure was taken for that cenwave and segment.
+            infiles (array-like): x1d files for that cenwave and segment, organized chronologically.
+            scaled_net (array-like): binned NET array for each x1d file of each cenwave and segment, scaled between
+                                    all LPs involved and scaled to 1.
+            scaled_stdev (array-like): binned standard deviation of the NEET array binning for each x1d file of 
+                                    each cenwave and segment, scaled between all LPs involved and scaled to 1.
+            scale_factor (array-like): the scale factor used to scale binned NET array of each x1d file of each
+                                    cenwave and segment across all LPs involved.
     """
 
     def __init__(self, PIDs, reftime = 54952.0, 
@@ -53,9 +52,11 @@ class FUVTDSBase:
                  inventory='inventory_test.csv'):
         """
         Args:
-            PIDs: the dat file that will store all the PIDs part of the
+            PIDs: The dat file that will store all the PIDs part of the
                 FUVTDS Monitor programs.
-            breakpoints: all the TDS breakpoints by fractional year.
+            reftime: The mjd of the reftime.
+            breakpoints: All the TDS breakpoints by fractional year.
+            inventory: The csv file containing the x1d files and other information used in the FUV TDS Monitor
         """
         self.cenwaves = [1533, 1577, 1623, 1291, 1327, 1222, 1105, 1280, 800, 1055, 1096]
         self.parse_infiles(PIDs, inventory)
@@ -67,7 +68,7 @@ class FUVTDSBase:
 
         # scale between LPs here
         self.scale_lps(small_dic)
-        #self.scale_lps(large_dic)
+        self.scale_lps(large_dic)
 
         # scale all to one
 
@@ -352,9 +353,22 @@ class FUVTDSBase:
 # --------------------------------------------------------------------------------#
     def bin_data(self, data_dic, size):
         """
-        Bin the net counts in each wavelength bin for each file and segment and
-        calculcate the standard deviation.
+        Bin the net counts in each wavelength bin from files that correspond to its
+        respective cenwave and segment. The standard deviation is calculated for
+        the binning.
+
+        Args:
+            data_dic (dictionary): the dictionary containing the net, wavelength, 
+                                grating, lp, target, rootname, date, and infiles
+                                information for all x1d files of each cenwave
+                                and segment setting.
+            size (string): Small/Large is used, determines the binsize for each mode
+                           and the wavelength edges of each segment. 
         """
+
+        # Dictionary that sets the binsize and wavelength edges of each segment
+        # as the wavelength edges changes depending if the size is small or large.
+        # Values based on the wl_info_dict dictionary in original FUV TDS Monitor.
         wl_info_dict = {
             'small':{
                 # G160M
@@ -394,14 +408,24 @@ class FUVTDSBase:
                 }
             }
         
+        # Set dictionary that will hold the information used for the FUV TDS Monitor
+        # before all the binning and scaling occurs.
         dictionary = {}
 
+        # Only look at the cenwaves used in the monitor
         for cenwave in self.cenwaves:
+
+            # If the cenwave is not in the dictionary, add it.
             if cenwave not in dictionary.keys():
                 dictionary[cenwave] = {}
 
+            # Only look at the segments of the cenwaves used in the monitor
             for segment in data_dic[cenwave]:
+
+                # If the segment is not in the dictionary[cenwave], add it.
                 if segment not in dictionary[cenwave].keys():
+
+                    # Declare the keys of the dictionary[cenwave][segment]
                     dictionary[cenwave][segment] = {
                         'binned_net': [],
                         'binned_wl' : [],
@@ -414,14 +438,19 @@ class FUVTDSBase:
                         'infiles': []
                     }
                 
+                # wl_range contains minimun wavelength, maximun wavelength, and binsize
                 wl_range = wl_info_dict[size][cenwave][segment]
                 min_wl = wl_range[0]
                 max_wl = wl_range[1]
                 binsize = wl_range[2]
 
+                # the wavelength bin edges based on binsize
                 bins = np.arange(min_wl, max_wl, binsize)
 
+                # look at each wavelength array of each x1d file
                 for i, wl in enumerate(data_dic[cenwave][segment]['wavelength']):
+
+                    # the wavelength values that fall within the wavelength range of the segment
                     x_index = np.where((wl >= min_wl) & (wl <= max_wl))
 
                     # Determine the mean and STD for each bin
@@ -439,6 +468,7 @@ class FUVTDSBase:
                     dictionary[cenwave][segment]['binned_net'].append(mean_net)
                     dictionary[cenwave][segment]['stdev'].append(std_net)
 
+                # Take the information from the data_dic into the dictionary for binned data
                 dictionary[cenwave][segment]['binned_wl'] = np.array(edges[:-1]+np.diff(edges)/2)
                 dictionary[cenwave][segment]['grating'] = data_dic[cenwave][segment]['grating']
                 dictionary[cenwave][segment]['lp'] = data_dic[cenwave][segment]['lp']
@@ -447,7 +477,7 @@ class FUVTDSBase:
                 dictionary[cenwave][segment]['date'] = data_dic[cenwave][segment]['date']
                 dictionary[cenwave][segment]['infiles'] = data_dic[cenwave][segment]['infiles']
 
-        # reformat + add scaled components
+        # reformat + add scaled components to dictionary
         for cenwave in self.cenwaves:
             for segment in dictionary[cenwave]:
                 dictionary[cenwave][segment]['binned_net'] = np.reshape(
@@ -463,6 +493,8 @@ class FUVTDSBase:
                 dictionary[cenwave][segment]['scaled_stdev'] = dictionary[cenwave][segment]['stdev']
 
                 dictionary[cenwave][segment]['scale_factor'] = np.copy(dictionary[cenwave][segment]['binned_net'])*0.0+1.0
+        
+        # Don't save it as a class component yet because all the math hasn't been done yet.
         return (dictionary)
 
 # --------------------------------------------------------------------------------#
@@ -487,23 +519,50 @@ class FUVTDSBase:
 
 # --------------------------------------------------------------------------------#
     def get_hduinfo(self, csv_file):
+        """
+        Obtain the header and data information for all the x1d files in the programs used
+        in the FUV TDS Monitor. Only x1d file information is taken for the currently monitored
+        cenwaves.
 
+        A csv file that contains the header information is used to obtain the file path
+        in order to reduce the time it takes to run through all the x1d files and instead
+        only look at files that align with that cenwave, for each cenwave.
+
+        Args:
+            csv_file: The csv file that contains the header information and file path of the
+            x1d files used in this run of the monitor.
+        
+        """
+
+        # read in inventory file as a pandas DataFrame
         inventory = pd.read_csv(csv_file)
 
+        # the dictionary that will hold the data informaton from the x1d files
         data_dic = {}
 
         for cenwave in self.cenwaves:
+
+            # if cenwave is not in the dictionary, add it
             if cenwave not in data_dic.keys():
                 data_dic[cenwave] = {}
             
+            # Obtain array-like list of only the x1d files of this cenwave from dataframe
             files = np.array(inventory['file_path'][(inventory['cenwave'] == cenwave)]).flatten()
+            
+            # iterate over the x1d files of the cenwave
             for file in files:
                 with fits.open(file, memmap=False) as hdulist:
                     hdr0 = hdulist[0].header
                     hdr1 = hdulist[1].header
                     data = hdulist[1].data
 
+                    # iterate over the segments of the x1d file. If there is only one segment
+                    # used, this will only iterate once. If two segments are used, then this
+                    # will iterate twice. data['segment'] will list all segments used. Also
+                    # applies to NUV data as well.
                     for i, segment in enumerate(data['segment']):
+
+                        # if segment is not in the dictionary, add it
                         if segment not in data_dic[cenwave].keys():
                             data_dic[cenwave][segment] = {
                                 'net': [],
@@ -516,6 +575,7 @@ class FUVTDSBase:
                                 'infiles': []
                             }
                         
+                        # Add the data and header information into the data dictionary to be used later
                         data_dic[cenwave][segment]['net'].append(np.array(data['net'][i][data['dq_wgt'][i] != 0]))
                         data_dic[cenwave][segment]['wavelength'].append(np.array(data['wavelength'][i][data['dq_wgt'][i] != 0]))
 
@@ -523,7 +583,7 @@ class FUVTDSBase:
                         data_dic[cenwave][segment]['lp'].append(hdr0['life_adj'])
                         data_dic[cenwave][segment]['target'].append(hdr0['targname'])
                         data_dic[cenwave][segment]['rootname'].append(hdr0['rootname'])
-                        data_dic[cenwave][segment]['date'].append(Time(hdr1['date-obs'], format='fits').decimalyear)
+                        data_dic[cenwave][segment]['date'].append(Time(hdr1['date-obs'], format='fits').decimalyear) # change from mjd to decimal year
                         data_dic[cenwave][segment]['infiles'].append(file)
 
         # change to np.array
@@ -535,6 +595,8 @@ class FUVTDSBase:
                 data_dic[cenwave][segment]['rootname'] = np.array(data_dic[cenwave][segment]['rootname'])
                 data_dic[cenwave][segment]['date'] = np.array(data_dic[cenwave][segment]['date'])
                 data_dic[cenwave][segment]['infiles'] = np.array(data_dic[cenwave][segment]['infiles'])
+        
+        # Don't save it as a class component yet because all the math hasn't been done yet.
         return (data_dic)
 
 # --------------------------------------------------------------------------------#
