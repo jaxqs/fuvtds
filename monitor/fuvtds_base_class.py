@@ -444,6 +444,7 @@ class FUVTDSBase:
                     dictionary[cenwave][segment] = {
                         'binned_net': [],
                         'binned_wl' : [],
+                        'wl_bin_edges': [],
                         'stdev': [],
                         'grating': [],
                         'lp': [],
@@ -485,6 +486,13 @@ class FUVTDSBase:
 
                 # Take the information from the data_dic into the dictionary for binned data
                 dictionary[cenwave][segment]['binned_wl'] = np.array(edges[:-1]+np.diff(edges)/2)
+                dictionary[cenwave][segment]['wl_bin_edges'] = np.array(edges)
+                dictionary[cenwave][segment]['best_fit'] = np.empty((
+                    len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints)+1)*2
+                    ))
+                dictionary[cenwave][segment]['best_fit_err'] = np.empty((
+                    len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints)+1)*2
+                    ))
                 dictionary[cenwave][segment]['grating'] = data_dic[cenwave][segment]['grating']
                 dictionary[cenwave][segment]['lp'] = data_dic[cenwave][segment]['lp']
                 dictionary[cenwave][segment]['target'] = data_dic[cenwave][segment]['target']
