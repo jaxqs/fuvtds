@@ -77,6 +77,21 @@ class FUVTDSBase:
         #scaled_net, scaled_std = self.calc_ratios()
             
 # --------------------------------------------------------------------------------#
+    def scale_to_1_all_data(self, dictionary):
+        """
+        Explain here <3
+
+        Original monitor uses the following for plotting:
+            - date
+            - scaled net
+            - scaled stdev
+            - best fit
+            - best fit error
+            - ref time
+        """
+
+
+# --------------------------------------------------------------------------------#
     def scale_lps(self, dictionary):
         """
         explain here <3
