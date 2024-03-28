@@ -89,12 +89,16 @@ class FUVTDSBase:
             - best fit error
             - ref time
         """
+        bp = self.breakpoints - self.reftime
+
 
 
 # --------------------------------------------------------------------------------#
     def scale_lps(self, dictionary):
         """
         explain here <3
+
+        add logging function in this to print out outputs
         """
 
         def find_nearest(array, value):
@@ -461,7 +465,7 @@ class FUVTDSBase:
                 binsize = wl_range[2]
 
                 # the wavelength bin edges based on binsize
-                bins = np.arange(min_wl, max_wl, binsize)
+                bins = np.arange(min_wl, max_wl+1, binsize)
 
                 # look at each wavelength array of each x1d file
                 for i, wl in enumerate(data_dic[cenwave][segment]['wavelength']):
