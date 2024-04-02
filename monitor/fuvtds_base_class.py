@@ -8,6 +8,7 @@ import multiprocessing as mp
 from itertools import repeat
 from scipy.stats import binned_statistic
 from tqdm.contrib.concurrent import process_map
+import mpfit
 
 """
 This is the base class for the FUVTDS Monitor that will do all
@@ -15,6 +16,12 @@ the analysis need and provide the necessary component to the
 monitor that will conduct all the plotting.
 
 Please be aware, this will be a monster.
+
+Notes to do in the future:
+    - Combine get hdu info with bin data
+    - Exchange mpfit.mpfit with scipy.curve_fit
+    - Do multithreading to run each cenwave/segment combo in parallel
+    - Put outputs into a log file instead out outright outputting
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -67,31 +74,425 @@ class FUVTDSBase:
         large_dic = self.bin_data(data_dictionary, 'large')
 
         # scale between LPs here
-        self.scale_lps(small_dic)
-        self.scale_lps(large_dic)
+        small = self.scale_lps(small_dic)
+        large = self.scale_lps(large_dic)
 
         # scale all to one
-
-        # after the scaling, get the reference data (first obs)
-        #self.get_refdata()
-        #scaled_net, scaled_std = self.calc_ratios()
+        self.small = self.scale_to_1_all_data(small)
+        self.large = self.scale_to_1_all_data(large)
             
 # --------------------------------------------------------------------------------#
     def scale_to_1_all_data(self, dictionary):
         """
         Explain here <3
-
-        Original monitor uses the following for plotting:
-            - date
-            - scaled net
-            - scaled stdev
-            - best fit
-            - best fit error
-            - ref time
+        
+        Note: for the sake of things, I will use the original mpfit.mpfit package and on a later date
+        I will see if I can trade it out for scipy curvefit. There should not be any significant changes.
+        Though I'm not entirely sure how the mpfit.mpfit works
         """
-        bp = self.breakpoints - self.reftime
 
+        def create_parainfo_list(p0, x, blue_flag):
+            """
+            Create the parinfo list of dictionaries for mp
 
+            Args:
+                p0: list
+                    a list of best guess input parameters
+                x: array
+                    an array of dates of exposures minus reftime
+                blue_flag: boolean
+                    If the cenwave in particular is a bluemode
+            
+            Returns:
+                parinfo: list
+                    A dictionary of input parameters to pass into mpfit.
+                    This is used to fix the breakpoint values (not try to find the best fit)
+            """
+
+            # Create array the length of initial parameters list
+            flag = np.zeros(len(p0), dtype=int)
+
+            # Create array the length of all breakpoints, will contain all breakpoints minus one
+            bp = np.zeros((len(p0)-2)//2)
+
+            # Set last flag as one to be an edge/boundary
+            flag[-1] = 1
+
+            # Loop over length of initial parameters list starting at index 2 for 2-stepsizes
+            #OR loop over the amount of breakpoints minus one.
+            for j in range(2, len(p0), 2):
+
+                # Set breakpoint value from initial parameters into its own array
+                bp[(j-2)//2] = p0[j]
+
+                # Set flag index = 1 if the breakpoint in initial_parameters is greater or equal
+                # to first in time date (x)
+                if p0[j] >= x[0]:
+                    flag[j] = 1 # Flag index corresponding the breakpoint index in initial paramters
+                    flag[j-1] = 1 # Flag index before breakpoint index in initial parameters
+                    flag[j+1] = 1 # Flag index after breakpoint index in initial paramters
+                
+                # Get the index of the first slope that will be fitted
+                indx = np.where(flag == 1)[0][0] # index of the first slope to be fitted
+                tied = f'p[{str(indx)}]'
+
+                # Do not fit slope of first segment if less than 4 points for blue mode
+                if (x[0] < bp[-1]) and (blue_flag == True):
+                    
+                    # If there are less than 4 points for blue mode in first in time then set
+                    # flag in those indx to be -1 (to be excluded) and look at next two indx
+                    if ( len(np.where(x < bp[(indx-1)//2])[0]) < 4):
+                        flag[indx] = -1
+                        tied = f'p[{str(indx+2)}]'
+                
+                # List that will hold all the dictionaries
+                parinfo = []
+
+                # Loop over length of initial paramters list
+                for j, _ in enumerate(p0):
+
+                    # Fix the breakpoints
+                    if (j > 1) and (j%2 == 0):
+                        parinfo.append({
+                            'value': p0[j], # breakpoint - reftime
+                            'fixed': True,
+                            'limited':[False, False],
+                            'limits': [0,0],
+                            'step': None,
+                            'mpside': 0,
+                            'tied':'',
+                            'mpprint': 1
+                        })
+                    else:
+                        if (j > 0) and (flag[j] == 0):
+
+                            # Fix slopes of segment with no data to slope of first segment with data
+                            # (in practice, assumes all segments have data if breakpoint is after the 1st data)
+                            p0[j] = 0.0
+                            parinfo.append({
+                                'value': p0[j],
+                                'fixed': True,
+                                'limited': [False, False],
+                                'limits': [0,0],
+                                'step': None,
+                                'mpside': 0,
+                                'mpmaxstep': 0,
+                                'tied': '',
+                                'mpprint': 1
+                            })
+                        
+                        elif (flag[j] == -1):
+
+                            # For blue modes, ties slope of 1st segment with data to slope of the 2nd segment
+                            # if the 1st segment has less than 4 measurements (fit results were unstable from one
+                            # wavelength bin to another)
+                            parinfo.append({
+                                'value': p0[indx],
+                                'fixed': True,
+                                'limited': [False, False],
+                                'limits': [0,0],
+                                'step': None,
+                                'mpside': 0,
+                                'mpmaxstep': 0,
+                                'tied': tied,
+                                'mpprint': 1
+                            })
+
+                        else:
+                            parinfo.append({
+                                'value': p0[j],
+                                'fixed': False,
+                                'limited': [False, False],
+                                'limits': [0,0],
+                                'step': None,
+                                'mpside': 0,
+                                'mpmaxstep': 0,
+                                'tied': '',
+                                'mpprint': 1
+                            })
+            return (parinfo)
+        
+        def mpfit_the_data(func, x, y, err=None, p0=None, parinfo=None):
+            """
+            Call the fitting function. Uses mpfit. 
+
+            Args: 
+                func: function
+                    mpfit function
+                x: array
+                    date - reftime
+                y: array
+                    scaled net count rate
+                err: array
+                    stdev of scaled net count rate
+                p0: list
+                    initial parameters guess
+                parinfo: list of dictionaries
+                    list of dictionaries with parameter information used in mpfit
+            """
+            if err is None:
+                err = np.ones(len(x))
+            if p0 is None:
+                print('error, initial parameter guesses not provided')
+                return (None, None, None)
+            if len(p0) == 1: # Zero line segments.
+                w = 1.0 / err**2
+                """
+                Return the weighted mean, unbiased weighted sample variance, and
+                the weighted standard error.
+                """
+                if len(y) <= 0: #There is no data.
+                    return (None, None, None)
+                elif len(y) == 1: # No variance or standard error
+                    return (y[0], 0.0,0.0)
+                
+                # Weighted mean.
+                wmeany, wsum = np.ma.average(y, weights=w, returned=True)
+
+                # Unbiased weighted sample variance
+                wsum2 = wsum**2
+                w2sum = np.sum(w**2)
+                n = len(w)
+
+                if abs(wsum2 - w2sum) < np.finfo(np.dtype(wsum2)).eps:
+                    s2 = 1.0 / (n - 1) * np.sum((y - wmeany)**2)
+                else:
+                    s2 = (np.sum(w * y**2) * wsum - np.sum(w * y)**2) / (wsum2 - w2sum)
+
+                # Standard error in the weighted mean.
+                t1 = n / ((n - 1) * wsum2)
+                meanw = np.mean(w)
+                t2 = np.sum((w * x - meanw * wmeany)**2)
+                t3 = wmeany * np.sum((w - meanw) * (w * y - meanw * wmeany))
+                t4 = wmeany**2 * np.sum((w - meanw)**2)
+                wse = np.sqrt(t1 * (t2 - 2.0 * t3 + t4))
+
+                return ([wmeany], [s2], [wse])
+            
+            fa = {'x': x, 'y': y, 'err': err}
+
+            m = mpfit.mpfit(mpfitting_function, p0, functkw=fa, parinfo=parinfo, quiet=True, debug=False)
+
+            if m.status <= 0:
+                print(f'mpfit, status={m.status}, {m.errmsg}')
+                popt, pcov, perr = None, None, None
+            
+            # Grab the parameters, covarience, and parameters error
+            popt = m.params
+            pcov = m.covar
+            perr = m.perror
+
+            return (popt, pcov, perr)
+        
+        # Fitting function that will be used
+        def mpfitting_function(p, fjac=None, x=None, y=None, err=None):
+            """
+            Mpfit fitting function.
+
+            Args:
+                p: list
+                    list of initial parameters, p0
+                fjac: unknown
+                    partial derivatives?
+                x: array
+                    date array of date of exposures - reftime in decimal year
+                y: array
+                    scaled net count rate
+                err: array
+                    scaled stdev of scaled net count rate
+            """
+
+            status = 0
+            if fjac is not None:
+                print('mpfitting_function does not calculate partial derivatives.')
+                status = -1
+            if x is None:
+                print('mpfitting_function requires that x be provided.')
+                status = -2
+            if y is None:
+                print('mpfitting_function requires that y be provided.')
+                status = -2
+            if err is None:
+                print('The error vector is assumed to be unity.')
+                err = np.ones(len(x))
+            elif 0.0 in err[:]:
+                print('Zero value in error vector.')
+                status = -3
+            
+            if status == 0:
+
+                # The actual function that is done.
+                # Uses date - reftime and initial parameters
+                # and returns the yvalues of all the linear fits
+                model_y = np.zeros(len(x))
+
+                # number of breakpoints
+                n_bp = 0
+
+                # number of parameters
+                n_pars = len(p)
+
+                if n_pars == 1:
+
+                    model_y = [p[0] for e in x]
+                
+                elif n_pars == 2:
+
+                    # If there are only two parameters (aka zero breakpoints), then
+                    # do a single linear fit for each time value of the exposure
+                    # this will be date - reftime
+                    y = [p[0] + p[1] * e for e in x]
+                
+                # If there is an even amount of parameters (as there should), do the the fit
+                elif not len(p) % 2:
+
+                    # Removees the intercept and the slope (first two elements in p0) and 
+                    # counts the number of breakpoints we are working with
+                    n_bp = int((len(p) - 2) // 2)
+
+                    # x-values == number of breakpoints
+                    x_bp = np.zeros(n_bp)
+
+                    # y-values == number of breakpoints, scaled net count related
+                    y_bp = np.zeros(n_bp)
+
+                    # set first breakpoint to first value in x array, time-related
+                    x_bp[0] = p[2]
+
+                    # Do linear fit with the first handful of parameters where
+                    #       p[0]: intercept, initial parameters
+                    #       p[1]: slope, initial parameters
+                    #       p[2]: first breakpoint, time-related
+                    y_bp[0] = p[0] + p[1] * p[2]
+
+                    # Loop over the amount of breakpoints, skipping the first breakpoint
+                    for j in range(1, n_bp):
+
+                        # set x value to the next breakpoint
+                        x_bp[j] = p[2 * (j+1)]
+
+                        # Calculate the yvalue of that breakpoint
+                        #       y_bp[j - 1]: last y value, intercept
+                        #       p[2 * j + 1]: the next slope value of this breakpoint, slope
+                        #       x_bp[j] - x_bp[j - 1]: subtract the last breakpoint to the current one to be time-related, time-related x value
+                        y_bp[j] = y_bp[j - 1] + p[2 * j + 1] * (x_bp[j] - x_bp[j - 1])
+                    
+                    # Loop over the number of xvalues, aka number of date values from all exposures
+                    for i, _ in enumerate(x):
+
+                        # Get first in time line segment
+                        if x[i] < x_bp[0]:
+
+                            # Do a linear fit
+                            yy = p[0] + p[1] * x[i]
+                        
+                        # Get last in time line segment
+                        elif x[i] >= x_bp[-1]:
+
+                            # Do a linear fit
+                            #       y_bp[-1]: last yvalue breakpoint related, intercept
+                            #       p[-1]: last slope value, initial parameters
+                            #       (x[i] - p[-2]): last date in time subtracted by last breakpoint in initial parameters
+                            yy = y_bp[-1] + p[-1] * (x[i] - p[-2])
+                        
+                        # Get the in between line segments
+                        elif n_bp > 1:
+
+                            # Loop over the breakpoints
+                            for j in range(n_bp - 1):
+
+                                # Get the date values in between the breakpoints
+                                if (x[i] >= x_bp[j]) and (x[i] < x_bp[j+1]):
+
+                                    # Do a linear fit
+                                    #       y_bp[j]: yvalue of this time period as intercept
+                                    #       p[2 * (j + 1) + 1]: slope value corresponding to this time segment, slope
+                                    #       (x[i] - x_bp[j]): date in time subtracted by this breakpoint, time-related
+                                    yy = y_bp[j] + p[2 * (j + 1) + 1] * (x[i] - x_bp[j])
+                                    break
+                        # Put the fitted yvalues into an array
+                        model_y[i] = yy
+                    
+                else:
+                    print(f'Warning, number of fit parameters {len(p)}')
+                    print('is not even, fit may be rubbish.')
+
+            weighted_deviation = (y - model_y) / err
+
+            return ([status, weighted_deviation])
+
+        breakpoints = self.breakpoints - self.reftime
+
+        for cenwave in dictionary:
+            for segment in dictionary[cenwave]:
+                for i, _ in enumerate(dictionary[cenwave][segment]['binned_wl']):
+
+                    # Date of all exposures of cenwave and segment minus ref time
+                    x = dictionary[cenwave][segment]['date'] - self.reftime
+                    
+                    # Scaled net count of given cenwave and segment
+                    y = dictionary[cenwave][segment]['scaled_net'][:, i].ravel()
+
+                    # Scaled stdev of given cenwave and segment
+                    error = dictionary[cenwave][segment]['scaled_stdev'][:,i].ravel()
+
+                    # Remove NaN values from y-array and from the corresponding xarray and error array
+                    x = x[~np.isnan(y)]
+                    error = error[~np.isnan(y)]
+                    y = y[~np.isnan(y)]
+
+                    # initial parameter guess
+                    initial_params = list(np.polyfit(x, y, 1))
+
+                    # polyfit returns the highest order coefficient first
+                    # Begin with intercept then slope [intercept, slope]
+                    initial_params.reverse()
+
+                    # loop for amount of breakpoints
+                    for bp in breakpoints:
+                        
+                        # Append breakpoint minus reftime to end of initial parameters list
+                        initial_params.append(bp)
+
+                        # Append slope of that breakpoint (minus reftime) to end of initial parameters list
+                        initial_params.append(initial_params[1])
+                    
+                    # Check to see if cenwave is a bluemode
+                    blue_flag = False
+                    if cenwave in [1222, 1096, 1055]:
+                        blue_flag = True
+                    
+                    # Create the parameter info list which mpfit.mpfit uses
+                    parinfo = create_parainfo_list(initial_params, x, blue_flag)
+
+                    # conduct the fit here
+                    fit = mpfit_the_data(mpfitting_function, x, y, err = error, p0 = initial_params, parinfo = parinfo)
+
+                    # The fit values
+                    pars = fit[0]
+                    perrs = fit[2]
+
+                    dictionary[cenwave][segment]['best_fit'][i,:] = pars
+                    dictionary[cenwave][segment]['best_fit_err'][i, :] = perrs
+
+                    if pars is None:
+                        print('No fit was done.')
+                    else:
+                        y_intercept = dictionary[cenwave][segment]['best_fit'][i, 0]
+                        y_inter_stdev = dictionary[cenwave][segment]['best_fit_err'][i, 0]
+
+                        # Scale to 1
+                        dictionary[cenwave][segment]['scaled_stdev'][:, i] = dictionary[cenwave][segment]['scaled_stdev'][:,i]/y_intercept
+                        dictionary[cenwave][segment]['scaled_net'][:, i] = dictionary[cenwave][segment]['scaled_net'][:,i]/y_intercept
+                        dictionary[cenwave][segment]['best_fit'][i, 1::2] = dictionary[cenwave][segment]['best_fit'][i, 1::2]/y_intercept
+
+                        dictionary[cenwave][segment]['best_fit_err'][i, 1::2] = np.sqrt(
+                            (dictionary[cenwave][segment]['best_fit_err'][i, 1::2] / y_intercept)**2 +
+                            (dictionary[cenwave][segment]['best_fit'][i, 1::2] / (y_intercept**2)*y_inter_stdev)**2
+                        )
+                        dictionary[cenwave][segment]['best_fit'][i, 0] = 1.0
+        
+        return(dictionary)
 
 # --------------------------------------------------------------------------------#
     def scale_lps(self, dictionary):
@@ -520,29 +921,13 @@ class FUVTDSBase:
                 dictionary[cenwave][segment]['scaled_stdev'] = dictionary[cenwave][segment]['stdev']
 
                 dictionary[cenwave][segment]['scale_factor'] = np.copy(dictionary[cenwave][segment]['binned_net'])*0.0+1.0
+
+                # best fit and best fit error
+                dictionary[cenwave][segment]['best_fit']     = np.empty( (len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints) + 1)*2))
+                dictionary[cenwave][segment]['best_fit_err'] = np.empty( (len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints) + 1)*2))
         
         # Don't save it as a class component yet because all the math hasn't been done yet.
         return (dictionary)
-
-# --------------------------------------------------------------------------------#
-    def get_refdata(self):
-        """
-        Determine the reference dataset (first in time) of each cenwave and
-        store its NET, WAVELENGTH, and filename information in a dictionary.
-        """
-
-        ref_dict = {}
-        for i in range(self.nentries):
-            if self.cenwaves[i] not in ref_dict.keys():
-                ref_dict[self.cenwaves[i]] = {}
-            if self.segments[i] not in ref_dict[self.cenwaves[i]].keys():
-                ref_dict[self.cenwaves[i]][self.segments[i]] = {}
-                ref_dict[self.cenwaves[i]][self.segments[i]]["net"] = self.nets[i]
-                ref_dict[self.cenwaves[i]][self.segments[i]]["wl"] = self.wls[i]
-                ref_dict[self.cenwaves[i]][self.segments[i]]["stdev"] = self.stdevs[i]
-                ref_dict[self.cenwaves[i]][self.segments[i]]["filename"] = self.infiles[i]
-        
-        self.ref = ref_dict
 
 # --------------------------------------------------------------------------------#
     def get_hduinfo(self, csv_file):
