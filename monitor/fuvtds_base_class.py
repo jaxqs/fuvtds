@@ -1,4 +1,4 @@
-from astropy.io import fits
+from astropy.io import fits, ascii
 import numpy as np
 import glob
 import os
@@ -9,6 +9,14 @@ from itertools import repeat
 from scipy.stats import binned_statistic
 from tqdm.contrib.concurrent import process_map
 import mpfit
+
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+
+from urllib import request
+import datetime
+from astropy.convolution import Box1DKernel, convolve
+from IPython.display import HTML
 
 """
 This is the base class for the FUVTDS Monitor that will do all
@@ -84,11 +92,21 @@ class FUVTDSBase:
 # --------------------------------------------------------------------------------#
     def scale_to_1_all_data(self, dictionary):
         """
-        Explain here <3
-        
+        Scale all the monitored modes to a 1, where 1 is the reference date of when COS began
+        observing. Through this we can see how each monitored mode is losing sensitivity over
+        time. 
+
         Note: for the sake of things, I will use the original mpfit.mpfit package and on a later date
         I will see if I can trade it out for scipy curvefit. There should not be any significant changes.
-        Though I'm not entirely sure how the mpfit.mpfit works
+        Though I'm not entirely sure how the mpfit.mpfit works  
+
+        Args:
+            Dictionary: the dictionary already scalled between all lps
+        
+        Returns: 
+            dictionary: dictionary that contains all monitored modes now scaled to 1.
+
+
         """
 
         def create_parainfo_list(p0, x, blue_flag):
@@ -497,7 +515,14 @@ class FUVTDSBase:
 # --------------------------------------------------------------------------------#
     def scale_lps(self, dictionary):
         """
-        explain here <3
+        Scale the mode between all Lifetime positions present.
+
+        Args:
+            dictionary: This dictionary contains the binned flux and date and other information
+                        of every monitored mode.
+        
+        returns:
+            dictionary: dictionary where all the monitor modes are scaled between LPs, respectively
 
         add logging function in this to print out outputs
         """
@@ -729,15 +754,21 @@ class FUVTDSBase:
                 
 
                 if (2 in dictionary[cenwave][segment]['lp']) & (1 in dictionary[cenwave][segment]['lp']):
-                    lp2_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 2) &
-                                            (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
-                    lp2_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 2) &
-                                            (dictionary[cenwave][segment]['target'] == 'GD71'))
+                    lp2_indx_wd308 = np.where(
+                        (dictionary[cenwave][segment]['lp'] >= 2) &
+                        (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
+                    lp2_indx_gd71 = np.where(
+                        (dictionary[cenwave][segment]['lp'] >= 2) &
+                        (dictionary[cenwave][segment]['target'] == 'GD71'))
                     
-                    lp1_indx_wd1057 = np.where((dictionary[cenwave][segment]['lp'] == 1) &
-                                            (dictionary[cenwave][segment]['target'] == 'WD1057+719'))
-                    lp1_indx_wd0947 = np.where((dictionary[cenwave][segment]['lp'] == 1) &
-                                            (dictionary[cenwave][segment]['target'] == 'WD0947+857'))
+
+                    lp1_indx_wd1057 = np.where(
+                        (dictionary[cenwave][segment]['lp'] == 1) &
+                        (dictionary[cenwave][segment]['target'] == 'WD1057+719'))
+                    lp1_indx_wd0947 = np.where(
+                        (dictionary[cenwave][segment]['lp'] == 1) &
+                        (dictionary[cenwave][segment]['target'] == 'WD0947+857'))
+                    
                     
                     if (cenwave > 1500) & (segment == 'FUVA'):
                         lp1_indx = lp1_indx_wd1057
@@ -856,7 +887,8 @@ class FUVTDSBase:
                         'target': [],
                         'rootname': [],
                         'date': [],
-                        'infiles': []
+                        'infiles': [],
+                        'PID': []
                     }
                 
                 # wl_range contains minimun wavelength, maximun wavelength, and binsize
@@ -904,6 +936,7 @@ class FUVTDSBase:
                 dictionary[cenwave][segment]['rootname'] = data_dic[cenwave][segment]['rootname']
                 dictionary[cenwave][segment]['date'] = data_dic[cenwave][segment]['date']
                 dictionary[cenwave][segment]['infiles'] = data_dic[cenwave][segment]['infiles']
+                dictionary[cenwave][segment]['PID'] = data_dic[cenwave][segment]['PID']
 
         # reformat + add scaled components to dictionary
         for cenwave in self.cenwaves:
@@ -984,7 +1017,8 @@ class FUVTDSBase:
                                 'target': [],
                                 'rootname': [],
                                 'date': [],
-                                'infiles': []
+                                'infiles': [],
+                                'PID': []
                             }
                         
                         # Add the data and header information into the data dictionary to be used later
@@ -997,6 +1031,7 @@ class FUVTDSBase:
                         data_dic[cenwave][segment]['rootname'].append(hdr0['rootname'])
                         data_dic[cenwave][segment]['date'].append(Time(hdr1['date-obs'], format='fits').decimalyear) # change from mjd to decimal year
                         data_dic[cenwave][segment]['infiles'].append(file)
+                        data_dic[cenwave][segment]['PID'].append(hdr0['proposid'])
 
         # change to np.array
         for cenwave in data_dic:
@@ -1007,6 +1042,7 @@ class FUVTDSBase:
                 data_dic[cenwave][segment]['rootname'] = np.array(data_dic[cenwave][segment]['rootname'])
                 data_dic[cenwave][segment]['date'] = np.array(data_dic[cenwave][segment]['date'])
                 data_dic[cenwave][segment]['infiles'] = np.array(data_dic[cenwave][segment]['infiles'])
+                data_dic[cenwave][segment]['PID'] = np.array(data_dic[cenwave][segment]['PID'])
         
         # Don't save it as a class component yet because all the math hasn't been done yet.
         return (data_dic)
@@ -1193,3 +1229,106 @@ class FUVTDSBase:
             )
             hdu.close()
             return (x1d_table)
+
+
+class FUVTDSMonitor(object):
+    """
+    This plotting function
+    """
+
+    def __init__(self, TDSData) -> None:
+        """
+        explaining here
+        """
+        self.trends = TDSData
+        self.solar  = self.get_solar_data()
+
+    def get_solar_data(self):
+        """
+        explain here
+        """
+        spaceweather_url = 'ftp://ftp.seismo.nrcan.gc.ca/spaceweather/solar_flux/daily_flux_values/fluxtable.txt'
+
+        request.urlretrieve(spaceweather_url, 'fluxtable.txt')
+
+        data = ascii.read('fluxtable.txt')
+        df = data.to_pandas()
+        fluxjulian = df['fluxjulian']
+        df.index = pd.DatetimeIndex(fluxjulian)
+        df['date'] = Time(fluxjulian, format='jd').decimalyear
+
+        df = df.drop(columns=['fluxdate', 'fluxtime', 'fluxcarrington', 'fluxadjflux', 'fluxursi'])
+        df.rename(columns = {'fluxobsflux':'f10.7'}, inplace = True)
+        df = df.reindex(columns=['date', 'f10.7'])
+
+        # this removes any previous solar flux txt that is out of date
+        os.system('rm '+os.path.join("solar_flux.txt"))
+
+        outfile = os.path.join("solar_flux.txt")
+        df = df[df['date'] >= 2009.5]
+        df.to_csv(outfile, header=None, index=None, sep=' ', mode='a')
+
+        return(df)
+    
+    def plot_solar_flux(self):
+        """smth"""
+
+        # Create figure with secondary y-axis
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # Plot the solar flux from dataframe, both smoothed and unsmoothed
+        unsmoothed = go.Scatter(x=self.solar['date'],
+                            y=self.solar['f10.7'],
+                            line_shape='linear',
+                            line=dict(color='royalblue', width=4),
+                            name='10.7 cm radio flux',
+                            opacity=0.5)
+        
+        smoothed = go.Scatter(x=self.solar['date'],
+                            y=convolve(self.solar['f10.7'], Box1DKernel(150), boundary='extend'),
+                            line_shape='linear',
+                            line=dict(color='firebrick', width=2),
+                            name='Smoothed 10.7 cm radio flux',
+                            opacity=0.6)
+        
+        # Plot the fractional throughput!
+        for i, cenwave in enumerate(self.trends.large):
+            for j, segment in enumerate(self.trends.large[cenwave]):
+                data = go.Scatter(
+                    x=self.trends.large[cenwave][segment]['date'],
+                    y=self.trends.large[cenwave][segment]['scaled_net'][:,0],
+                    mode='markers',
+                    name=f'{cenwave}/{segment}',
+                    customdata= np.stack(
+                        (self.trends.large[cenwave][segment]['rootname'],
+                         self.trends.large[cenwave][segment]['lp'],
+                         self.trends.large[cenwave][segment]['PID'],
+                         self.trends.large[cenwave][segment]['target']), 
+                         axis=-1
+                    ),
+                    hovertemplate=
+                    'Rootname: %{customdata[0]}<br>'+
+                    'Life_adj: %{customdata[1]}<br>'+
+                    'Proposid: %{customdata[2]}<br>'+
+                    'Target: %{customdata[3]}'
+                    "<extra></extra>",
+
+                )
+                fig.add_trace(data, secondary_y=False)
+        
+        fig.add_trace(unsmoothed, secondary_y=True)
+        fig.add_trace(smoothed, secondary_y=True)
+
+        fig.update_layout(
+            title_text="TDS Solar Flux"
+        )
+
+        # set x-axis title
+        fig.update_xaxes(title_text="Date")
+        
+        # set y-axes titles
+        fig.update_yaxes(title_text="Fractional Throughput", range=(0.0, 1.1), secondary_y=False)
+        fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
+        fig.show()
+        fig.write_html('tds_solar_flux.html')
+
