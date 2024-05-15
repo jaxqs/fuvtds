@@ -979,6 +979,20 @@ class FUVTDSBase:
         
         """
 
+        targ_info_dict = {
+            1533: {'FUVA': ['GD71'], 'FUVB': ['WD0308-565']},
+            1577: {'FUVA': ['GD71', 'WD1057+719'], 'FUVB': ['WD1057+719', 'WD0308-565']},
+            1623: {'FUVA': ['GD71', 'WD1057+719'], 'FUVB': ['WD1057+719', 'WD0308-565']},
+            1291: {'FUVA': ['WD0308-565', 'WD0947+857'], 'FUVB': ['WD0308-565', 'WD0947+857']},
+            1327: {'FUVA': ['WD0308-565', 'WD0947+857'], 'FUVB': ['WD0308-565', 'WD0947+857']},
+            1105: {'FUVA': ['WD0308-565', 'WD0947+857']},
+            1280: {'FUVA': ['WD0308-565', 'WD0947+857'], 'FUVB': ['WD0308-565', 'WD0947+857']},
+            800:  {'FUVA': ['WD0308-565']},
+            1222: {'FUVA': ['WD0308-565'], 'FUVB': ['WD0308-565']},
+            1055: {'FUVA': ['WD0308-565'], 'FUVB': ['WD0308-565']},
+            1096: {'FUVB': ['GD71']}
+        }
+
         # read in inventory file as a pandas DataFrame
         inventory = pd.read_csv(csv_file)
 
@@ -1007,6 +1021,10 @@ class FUVTDSBase:
                     # applies to NUV data as well.
                     for i, segment in enumerate(data['segment']):
 
+                        # This line of code removes targets no longer used for that specific mode in TDS
+                        if hdr0['targname'] not in targ_info_dict[cenwave][segment]:
+                            continue
+
                         # if segment is not in the dictionary, add it
                         if segment not in data_dic[cenwave].keys():
                             data_dic[cenwave][segment] = {
@@ -1020,7 +1038,7 @@ class FUVTDSBase:
                                 'infiles': [],
                                 'PID': []
                             }
-                        
+
                         # Add the data and header information into the data dictionary to be used later
                         data_dic[cenwave][segment]['net'].append(np.array(data['net'][i][data['dq_wgt'][i] != 0]))
                         data_dic[cenwave][segment]['wavelength'].append(np.array(data['wavelength'][i][data['dq_wgt'][i] != 0]))
