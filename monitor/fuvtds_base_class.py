@@ -30,6 +30,7 @@ Notes to do in the future:
     - Exchange mpfit.mpfit with scipy.curve_fit
     - Do multithreading to run each cenwave/segment combo in parallel
     - Put outputs into a log file instead out outright outputting
+    - Fix the bug that affects the LP3 -> LP4 -> LP3, present in 1280 FUVB
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -553,6 +554,9 @@ class FUVTDSBase:
 
         for cenwave in dictionary:
             for segment in dictionary[cenwave]:
+
+                print(cenwave, segment)
+
                 if (6 in dictionary[cenwave][segment]['lp']) & (4 in dictionary[cenwave][segment]['lp']):
                     
                     lp6_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 6) &
@@ -643,9 +647,9 @@ class FUVTDSBase:
 
 
                 if (4 in dictionary[cenwave][segment]['lp']) & (3 in dictionary[cenwave][segment]['lp']):
-                    lp4_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 4) &
+                    lp4_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] >= 4) &
                                             (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
-                    lp4_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 4) &
+                    lp4_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] >= 4) &
                                             (dictionary[cenwave][segment]['target'] == 'GD71'))
                     
                     lp3_indx1_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
@@ -691,18 +695,23 @@ class FUVTDSBase:
                             dictionary[cenwave][segment]['scaled_stdev'][lp4_indx, i] = calc_error(
                                 i, dictionary[cenwave][segment], lp3_indx1, lp4_indx
                             )
-                            #print(f"+++ Scaling LP4 to LP3 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1]} {dictionary[cenwave][segment]['infiles'][lp4_indx[0]]}")
+                            print(f"+++ Scaling LP4 to LP3 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1]} {dictionary[cenwave][segment]['infiles'][lp4_indx[0]]}")
 
                             # Scale LP3 after LP4 -> LP3
                             if len(lp3_indx2) > 0:
-                                dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i] = (dictionary[cenwave][segment]['binned_net'][lp4_indx[0], i] / dictionary[cenwave][segment]['binned_net'][lp4_indx[0]-1, i])
-                                dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] = dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] * dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i]
+                                dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i] = (
+                                    dictionary[cenwave][segment]['binned_net'][lp4_indx[0], i] / 
+                                    dictionary[cenwave][segment]['binned_net'][lp4_indx[0]-1, i])
+                                
+                                dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] = (
+                                    dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] * 
+                                    dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i])
 
                                 # calculate error
                                 dictionary[cenwave][segment]['scaled_stdev'][lp3_indx2, i] = calc_error(
                                     i, dictionary[cenwave][segment], lp4_indx, lp3_indx2
                                 )
-                                #print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp4_indx[0]], dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1])
+                                print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp4_indx[0]], dictionary[cenwave][segment]['infiles'][lp4_indx[0]-1])
                         elif cenwave == 800:
                             dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i] = (dictionary[cenwave][segment]['binned_net'][lp3_indx2[0]+1, i] / dictionary[cenwave][segment]['binned_net'][lp3_indx2[0], i])
                             dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] = dictionary[cenwave][segment]['scaled_net'][lp3_indx2, i] * dictionary[cenwave][segment]['scale_factor'][lp3_indx2, i]
@@ -711,13 +720,13 @@ class FUVTDSBase:
                                 i, dictionary[cenwave][segment], lp4_indx, lp3_indx2
                             )
 
-                            #print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp3_indx2[0]+1], dictionary[cenwave][segment]['infiles'][lp3_indx2[0]])
+                            print ('+++ Scaling LP3 to LP4 using data from datasets: ', dictionary[cenwave][segment]['infiles'][lp3_indx2[0]+1], dictionary[cenwave][segment]['infiles'][lp3_indx2[0]])
 
                 if (3 in dictionary[cenwave][segment]['lp']) & (2 in dictionary[cenwave][segment]['lp']):
 
-                    lp3_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
+                    lp3_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] >= 3) &
                                             (dictionary[cenwave][segment]['target'] == 'WD0308-565'))
-                    lp3_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] == 3) &
+                    lp3_indx_gd71 = np.where((dictionary[cenwave][segment]['lp'] >= 3) &
                                             (dictionary[cenwave][segment]['target'] == 'GD71'))
                     
                     lp2_indx_wd308 = np.where((dictionary[cenwave][segment]['lp'] == 2) &
@@ -772,7 +781,7 @@ class FUVTDSBase:
                     
                     if (cenwave > 1500) & (segment == 'FUVA'):
                         lp1_indx = lp1_indx_wd1057
-                        lp2_indx  = lp2_indx_gd71
+                        lp2_indx = lp2_indx_gd71
                     elif (cenwave > 1500) & (segment == 'FUVB'):
                         lp1_indx = lp1_indx_wd1057
                         lp2_indx = lp2_indx_wd308
@@ -781,7 +790,7 @@ class FUVTDSBase:
                         lp2_indx  = lp2_indx_wd308
                     
                     lp1_indx = lp1_indx[0]
-                    lp2_indx  = lp2_indx[0]
+                    lp2_indx = lp2_indx[0]
 
                     for i, _ in enumerate(dictionary[cenwave][segment]['binned_wl']):
                         # Scale LP2
