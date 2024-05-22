@@ -58,8 +58,8 @@ def binned(cenwave, segment, x, y):
 
 def select_model(target, x):
     targs = {
-        'GD71': 'gd71_mod_011.fits',
-        'WD0308-565': 'wd0308_565_mod_006.fits'
+        'GD71': 'gd71_mod_012.fits',
+        'WD0308-565': 'wd0308_565_mod_007.fits'
     }
     model_spec = syn.SourceSpectrum.from_file(os.path.join(
         os.environ['PYSYN_CDBS'], 'calspec', targs[target]))
@@ -147,8 +147,8 @@ def plot_flux(data_ref, data_new, cenwave):
 
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
-    ref = ['17326', '02']
-    new = ['17328', '04']
+    ref = ['17328', '04']
+    new = ['17328', '06']
 
     #Grab the data from COSMO
     data_ref = get_new_data(ref[0], ref[1])

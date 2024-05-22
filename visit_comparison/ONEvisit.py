@@ -179,8 +179,8 @@ def seperate_segs(data, segment, func):
 
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
-    PID = '17326'
-    visit = '04'
+    PID = '17328'
+    visit = '5b'
 
     data = get_new_data(PID, visit)
 
