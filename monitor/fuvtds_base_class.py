@@ -1263,13 +1263,50 @@ class FUVTDSMonitor(object):
     This plotting function
     """
 
+    # adding the life time positions, hv raises, and whatever else lol
+
+
     def __init__(self, TDSData) -> None:
         """
         explaining here
         """
         self.trends = TDSData
-        self.solar  = self.get_solar_data()
+        self.breakpoints = TDSData.breakpoints
 
+        # the vertical lines used in plots
+        self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94])
+        self.HV_FUVB = np.array([2011.18,2013.47,2012.56,2014.55,2015.107,2016.05,2017.75,2020.75,2022.47, 2023.94])
+        self.LPs = np.array([2012.56, 2015.107, 2017.75, 2021.76, 2022.75])
+
+        # plotting
+        self.solar  = self.get_solar_data()
+    
+    # add vertical lines
+    def _add_lines(self, lines, style, name):
+        vlines = []
+        for i, line in enumerate(lines):
+            if i == 0:
+                vlines.append(go.Scatter(
+                x = [line, line],
+                y = [0, 1.4],
+                mode = 'lines',
+                line=style,
+                name=name,
+                legendgroup=name,
+                showlegend=True
+            ))
+            else:
+                vlines.append(go.Scatter(
+                    x = [line, line],
+                    y = [0, 1.4],
+                    mode = 'lines',
+                    line=style,
+                    name=name,
+                    legendgroup=name,
+                    showlegend=False
+                ))
+        return (vlines)
+        
     def get_solar_data(self):
         """
         explain here
@@ -1319,13 +1356,19 @@ class FUVTDSMonitor(object):
                             opacity=0.6)
         
         # Plot the fractional throughput!
-        for i, cenwave in enumerate(self.trends.large):
-            for j, segment in enumerate(self.trends.large[cenwave]):
+        marker_type = {'FUVA': 'circle',
+                       'FUVB': 'x'}
+        for cenwave in self.trends.large:
+            for segment in self.trends.large[cenwave]:
+
+                grating = self.trends.large[cenwave][segment]['grating'][0]
+
                 data = go.Scatter(
                     x=self.trends.large[cenwave][segment]['date'],
                     y=self.trends.large[cenwave][segment]['scaled_net'][:,0],
                     mode='markers',
-                    name=f'{cenwave}/{segment}',
+                    marker_symbol=marker_type[segment],
+                    name=f'{grating}/{cenwave}/{segment}',
                     customdata= np.stack(
                         (self.trends.large[cenwave][segment]['rootname'],
                          self.trends.large[cenwave][segment]['lp'],
@@ -1338,13 +1381,18 @@ class FUVTDSMonitor(object):
                     'Life_adj: %{customdata[1]}<br>'+
                     'Proposid: %{customdata[2]}<br>'+
                     'Target: %{customdata[3]}'
-                    "<extra></extra>",
-
+                    "<extra></extra>"
                 )
                 fig.add_trace(data, secondary_y=False)
         
         fig.add_trace(unsmoothed, secondary_y=True)
         fig.add_trace(smoothed, secondary_y=True)
+
+        # add vertical lines
+        fig.add_traces(self._add_lines(self.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint'))
+        fig.add_traces(self._add_lines(self.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA'))
+        fig.add_traces(self._add_lines(self.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB'))
+        fig.add_traces(self._add_lines(self.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch'))
 
         fig.update_layout(
             title_text="TDS Solar Flux"
