@@ -76,7 +76,12 @@ class FUVTDSBase:
         """
         self.cenwaves = [1533, 1577, 1623, 1291, 1327, 1222, 1105, 1280, 800, 1055, 1096]
         self.parse_infiles(PIDs, inventory)
+
         self.breakpoints = np.array(breakpoints)
+        self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94])
+        self.HV_FUVB = np.array([2011.18,2013.47,2012.56,2014.55,2015.107,2016.05,2017.75,2020.75,2022.47, 2023.94])
+        self.LPs = np.array([2012.56, 2015.107, 2017.75, 2021.76, 2022.75])
+
         self.reftime = Time(reftime, format="mjd").decimalyear
         data_dictionary = self.get_hduinfo(inventory)
         small_dic = self.bin_data(data_dictionary, 'small')
@@ -1274,9 +1279,9 @@ class FUVTDSMonitor(object):
         self.breakpoints = TDSData.breakpoints
 
         # the vertical lines used in plots
-        self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94])
-        self.HV_FUVB = np.array([2011.18,2013.47,2012.56,2014.55,2015.107,2016.05,2017.75,2020.75,2022.47, 2023.94])
-        self.LPs = np.array([2012.56, 2015.107, 2017.75, 2021.76, 2022.75])
+        self.HV_FUVA = TDSData.HV_FUVA
+        self.HV_FUVB = TDSData.HV_FUVB
+        self.LPs = TDSData.LPs
 
         # plotting
         self.solar  = self.get_solar_data()
