@@ -99,7 +99,7 @@ def plot_flux(data, segment, num=0):
     for a in airglow_bins:
         ax.axvspan(a[0], a[1], color='brown', alpha=0.1)
 
-    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment}\
+    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment} LP{data['LIFE_ADJ']}\
                  {data['TARGNAME']} {bin_size}Å-bin {data['DATE-OBS']}")
     ax.set_xlim(data['WAVELENGTH'][num][0]-5, data['WAVELENGTH'][num][-1]+5)
     ax.set_ylabel('flux')
@@ -152,7 +152,7 @@ def plot_net(data, segment, num=0):
     ax.scatter(wl, bkg, marker='v', color='blue', label=' Background')
     ax.set_ylabel('Net counts')
     ax.set_xlabel('Wavelength (Å)')
-    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment}\
+    ax.set_title(f"{data['OPT_ELEM']}/{data['CENWAVE']}/{segment} LP{data['LIFE_ADJ']}\
                   {data['TARGNAME']} {bin_size}Å-bin {data['DATE-OBS']}")
     ax.legend()
 
@@ -180,7 +180,7 @@ def seperate_segs(data, segment, func):
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
     PID = '17328'
-    visit = '5b'
+    visit = '7a'
 
     data = get_new_data(PID, visit)
 

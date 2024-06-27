@@ -14,9 +14,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 from urllib import request
-import datetime
 from astropy.convolution import Box1DKernel, convolve
-from IPython.display import HTML
 
 """
 This is the base class for the FUVTDS Monitor that will do all
@@ -28,9 +26,13 @@ Please be aware, this will be a monster.
 Notes to do in the future:
     - Combine get hdu info with bin data
     - Exchange mpfit.mpfit with scipy.curve_fit
-    - Do multithreading to run each cenwave/segment combo in parallel
+    - Do multithreading to run each cenwave/segment combo in parallel, for analysis
     - Put outputs into a log file instead out outright outputting
     - Fix the bug that affects the LP3 -> LP4 -> LP3, present in 1280 FUVB
+    - Fix errors bug
+    - Add in a function for 'broken lines' that can be called in for the plotting class
+    - add highlighted areas in residual plots in plotting class for 2% and 5%
+    - add in current tdstab as a class input in plotting function
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -1273,24 +1275,31 @@ class FUVTDSMonitor(object):
 
     def __init__(self, TDSData) -> None:
         """
-        explaining here
+        Args:
+            TDSData: object that contains all the relavent information of the TDS analysis.
         """
         self.trends = TDSData
-        self.breakpoints = TDSData.breakpoints
 
         # the vertical lines used in plots
+        self.breakpoints = TDSData.breakpoints
         self.HV_FUVA = TDSData.HV_FUVA
         self.HV_FUVB = TDSData.HV_FUVB
         self.LPs = TDSData.LPs
 
         # plotting
         self.solar  = self.get_solar_data()
+        self.plot_solar_flux()
+        self.rel_sens()
     
     # add vertical lines
+    # REVAMP THIS THIS DOESNT REALLY WORK AHHH          
     def _add_lines(self, lines, style, name):
+        
+        # this list will host information about each line
         vlines = []
         for i, line in enumerate(lines):
             if i == 0:
+                # Append plot information of vertical line
                 vlines.append(go.Scatter(
                 x = [line, line],
                 y = [0, 1.4],
@@ -1301,6 +1310,7 @@ class FUVTDSMonitor(object):
                 showlegend=True
             ))
             else:
+                # Group together the lines and have only the first visible in legend
                 vlines.append(go.Scatter(
                     x = [line, line],
                     y = [0, 1.4],
@@ -1314,18 +1324,25 @@ class FUVTDSMonitor(object):
         
     def get_solar_data(self):
         """
-        explain here
+        Get the solar flux data from this spaceweather website, updates each day.
         """
+
+        # website where solar flux is hosted
         spaceweather_url = 'ftp://ftp.seismo.nrcan.gc.ca/spaceweather/solar_flux/daily_flux_values/fluxtable.txt'
 
+        # retrieve the flux table from the website where solar flux is hosted
         request.urlretrieve(spaceweather_url, 'fluxtable.txt')
 
+        # read in the flux table and convert to pandas dataframe
         data = ascii.read('fluxtable.txt')
         df = data.to_pandas()
+
+        # obtain the julian flux column, reindex data for flux julian, and then create a new date column in decimal year
         fluxjulian = df['fluxjulian']
         df.index = pd.DatetimeIndex(fluxjulian)
         df['date'] = Time(fluxjulian, format='jd').decimalyear
 
+        # remove the unnecessary columns, rename the flux column to f10.7, and reindex to date
         df = df.drop(columns=['fluxdate', 'fluxtime', 'fluxcarrington', 'fluxadjflux', 'fluxursi'])
         df.rename(columns = {'fluxobsflux':'f10.7'}, inplace = True)
         df = df.reindex(columns=['date', 'f10.7'])
@@ -1333,14 +1350,17 @@ class FUVTDSMonitor(object):
         # this removes any previous solar flux txt that is out of date
         os.system('rm '+os.path.join("solar_flux.txt"))
 
+        # save the most up to date solar flux file to directory
         outfile = os.path.join("solar_flux.txt")
-        df = df[df['date'] >= 2009.5]
+        df = df[df['date'] >= 2009.5] # only interested in data post 2009.5, after COS launch
         df.to_csv(outfile, header=None, index=None, sep=' ', mode='a')
 
         return(df)
     
     def plot_solar_flux(self):
-        """smth"""
+        """
+        Plot the solar flux against the relative sensitivity of all the modes, large bins.
+        """
 
         # Create figure with secondary y-axis
         fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -1368,6 +1388,7 @@ class FUVTDSMonitor(object):
 
                 grating = self.trends.large[cenwave][segment]['grating'][0]
 
+                # Fractional throughput, looped over all monitored modes
                 data = go.Scatter(
                     x=self.trends.large[cenwave][segment]['date'],
                     y=self.trends.large[cenwave][segment]['scaled_net'][:,0],
@@ -1388,17 +1409,22 @@ class FUVTDSMonitor(object):
                     'Target: %{customdata[3]}'
                     "<extra></extra>"
                 )
+
+                # add trace to plot
                 fig.add_trace(data, secondary_y=False)
         
+        # add solar flux smoothed and unsmoothed to plot based off secondary_y
         fig.add_trace(unsmoothed, secondary_y=True)
         fig.add_trace(smoothed, secondary_y=True)
 
         # add vertical lines
+        # this might change bc of relative sensitivity function
         fig.add_traces(self._add_lines(self.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint'))
         fig.add_traces(self._add_lines(self.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA'))
         fig.add_traces(self._add_lines(self.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB'))
         fig.add_traces(self._add_lines(self.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch'))
 
+        # add the title
         fig.update_layout(
             title_text="TDS Solar Flux"
         )
@@ -1409,6 +1435,131 @@ class FUVTDSMonitor(object):
         # set y-axes titles
         fig.update_yaxes(title_text="Fractional Throughput", range=(0.0, 1.1), secondary_y=False)
         fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
-        fig.show()
-        fig.write_html('tds_solar_flux.html')
+        fig.write_html('tds_solar_flux.html') #maybe add the date?
+    
+    def rel_sens(self):
+        """
+        Plot the relative sensitivity of all the monitored modes and residuals against best fit
+        parameters and current tdstab.
+        
+        need to add:
+        -residuals
+        -fitted lines
+        -tdstab current
+        -verticcal lines
+        """
 
+        # large wavelength bins and small wavelength bins are both plotted, will loop over
+        sizes = [self.trends.large, self.trends.small]
+        
+        # for the html file to save as separate files
+        name = ['large', 'small']
+        
+        # loop over the trend sizes
+        for j, trends in enumerate(sizes):
+
+            # hold the labels of each unique monitored mode
+            labels = []
+
+            # save the total wavelength bins used in all modes
+            tot_wl_bins = []
+
+            # create figure with two subplots
+            fig = make_subplots(rows=2, cols=1,
+                            shared_xaxes=True,
+                            vertical_spacing=0.1,
+                            subplot_titles=("Original Data", "Residuals"))
+            
+            # Loop over the cenwave, segment, and wavelength bins
+            for cenwave in trends:
+                for segment in trends[cenwave]:
+                    for i, _ in enumerate(trends[cenwave][segment]['binned_wl']):
+
+                        # Make trace of relative sensntivity of this wavelength bin
+                        trace = go.Scatter(
+                            x=trends[cenwave][segment]['date'],
+                            y=trends[cenwave][segment]['scaled_net'][:,i],
+                            error_y=dict(
+                                    type='data',
+                                    array=trends[cenwave][segment]['scaled_stdev'][:,i],
+                                    visible=True
+                                ),
+                            mode='markers',
+                            name=f"{trends[cenwave][segment]['grating'][0]}/{cenwave}/{segment} {trends[cenwave][segment]['wl_bin_edges'][i]} - {trends[cenwave][segment]['wl_bin_edges'][i+1]}",
+                            customdata= np.stack(
+                                    (trends[cenwave][segment]['rootname'],
+                                     trends[cenwave][segment]['lp'],
+                                     trends[cenwave][segment]['PID'],
+                                     trends[cenwave][segment]['target']),
+                                     axis=-1
+                                ),
+                            hovertemplate=
+                                'Rootname: %{customdata[0]}<br>'+
+                                'Life_adj: %{customdata[1]}<br>'+
+                                'Proposid: %{customdata[2]}<br>'+
+                                'Target: %{customdata[3]}'
+                                "<extra></extra>"
+                        )
+
+                        # add the traces to the plot
+                        fig.add_trace(trace, row=1, col=1)
+                        fig.add_trace(trace, row=2, col=1)
+                    
+                    # Add the total wavelength bins used to list
+                    tot_wl_bins.append(i+1)
+
+                    # Add the unique label of this mode, regardless of wavelength bin
+                    labels.append(f"{trends[cenwave][segment]['grating'][0]}/{segment}/{cenwave}")
+            
+            # total amount of traces within figure
+            ld = len(fig.data)
+            
+            # This will keep only the wavelength bins of the first mode visible 
+            # (etc, first 34 bins * 2 for both plots) 
+            for k in range(tot_wl_bins[0]*2, ld):
+                fig.update_traces(visible=False, selector=k)
+            
+            def create_layout_button(k, label):
+                # k is number for which element of labels array
+                # label is the unique label of this mode
+
+                # Visibility array, fill all False
+                # ld -> the number of traces in the figure
+                visibility = [False]*ld
+
+                # Sum all previous # of wavelength bins for each mode prior to this specific k value
+                tot = 0
+                for i in range(k+1):
+                    if i != 0:
+                        tot+= tot_wl_bins[i-1]*2
+    
+                # Loop over the visibility array to only select True for ones corresponding to mode selected
+                for tr in range(tot, tot_wl_bins[k]*2+tot):
+                    visibility[tr] = True
+
+                # dictionary of the button
+                return (dict(
+                    label=label,
+                    method='update',
+                    args=[
+                        {'visible': visibility,
+                         'title':label,
+                         'showlegend':True}
+                    ]
+                ))
+
+            # create buttons
+            updatemenus = [
+                go.layout.Updatemenu(
+                    active=0,
+                    buttons=[
+                        create_layout_button(k, label) for k, label in enumerate(labels)
+                    ]
+                ),
+            ]
+
+            # add in the menu to the figure
+            fig.update_layout(updatemenus=updatemenus)
+
+            # write the plot to the html file
+            fig.write_html(f'rel_sens_{name[j]}.html')
