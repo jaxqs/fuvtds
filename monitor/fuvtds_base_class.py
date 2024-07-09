@@ -24,7 +24,6 @@ monitor that will conduct all the plotting.
 Please be aware, this will be a monster.
 
 Notes to do in the future:
-    - Combine get hdu info with bin data
     - Exchange mpfit.mpfit with scipy.curve_fit
     - Do multithreading to run each cenwave/segment combo in parallel, for analysis
     - Put outputs into a log file instead out outright outputting
@@ -33,6 +32,10 @@ Notes to do in the future:
     - Add in a function for 'broken lines' that can be called in for the plotting class
     - add highlighted areas in residual plots in plotting class for 2% and 5%
     - add in current tdstab as a class input in plotting function
+
+databases stuff
+    -can look into dadsops_rep and alerts_rep separately and then do pandas magic to find
+    the rootnames of visits with alertobs and exclude them from data
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -79,15 +82,14 @@ class FUVTDSBase:
         self.cenwaves = [1533, 1577, 1623, 1291, 1327, 1222, 1105, 1280, 800, 1055, 1096]
         self.parse_infiles(PIDs, inventory)
 
+        # Vertical lines, these can be added upon
         self.breakpoints = np.array(breakpoints)
         self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94])
         self.HV_FUVB = np.array([2011.18,2013.47,2012.56,2014.55,2015.107,2016.05,2017.75,2020.75,2022.47, 2023.94])
         self.LPs = np.array([2012.56, 2015.107, 2017.75, 2021.76, 2022.75])
 
         self.reftime = Time(reftime, format="mjd").decimalyear
-        data_dictionary = self.get_hduinfo(inventory)
-        small_dic = self.bin_data(data_dictionary, 'small')
-        large_dic = self.bin_data(data_dictionary, 'large')
+        small_dic, large_dic = self.get_hduinfo_bin(inventory)
 
         # scale between LPs here
         small = self.scale_lps(small_dic)
@@ -817,22 +819,23 @@ class FUVTDSBase:
                     print(f"+++ Scaling LP2 to LP1 using data from datasets: {dictionary[cenwave][segment]['infiles'][lp1_indx[-1]]} {dictionary[cenwave][segment]['infiles'][lp2_indx[0]]}")
 
         return (dictionary)
+
 # --------------------------------------------------------------------------------#
-    def bin_data(self, data_dic, size):
+    def get_hduinfo_bin(self, csv_file):
         """
-        Bin the net counts in each wavelength bin from files that correspond to its
-        respective cenwave and segment. The standard deviation is calculated for
-        the binning.
+        Obtain the header and data information for all the x1d files in the programs used
+        in the FUV TDS Monitor. Only x1d file information is taken for the currently monitored
+        cenwaves.
+
+        A csv file that contains the header information is used to obtain the file path
+        in order to reduce the time it takes to run through all the x1d files and instead
+        only look at files that align with that cenwave, for each cenwave.
 
         Args:
-            data_dic (dictionary): the dictionary containing the net, wavelength, 
-                                grating, lp, target, rootname, date, and infiles
-                                information for all x1d files of each cenwave
-                                and segment setting.
-            size (string): Small/Large is used, determines the binsize for each mode
-                           and the wavelength edges of each segment. 
+            csv_file: The csv file that contains the header information and file path of the
+            x1d files used in this run of the monitor.
+        
         """
-
         # Dictionary that sets the binsize and wavelength edges of each segment
         # as the wavelength edges changes depending if the size is small or large.
         # Values based on the wl_info_dict dictionary in original FUV TDS Monitor.
@@ -874,126 +877,6 @@ class FUVTDSBase:
                 1280:{'FUVA':[1280, 2000, 720], 'FUVB':[1100, 1120, 20]}
                 }
             }
-        
-        # Set dictionary that will hold the information used for the FUV TDS Monitor
-        # before all the binning and scaling occurs.
-        dictionary = {}
-
-        # Only look at the cenwaves used in the monitor
-        for cenwave in self.cenwaves:
-
-            # If the cenwave is not in the dictionary, add it.
-            if cenwave not in dictionary.keys():
-                dictionary[cenwave] = {}
-
-            # Only look at the segments of the cenwaves used in the monitor
-            for segment in data_dic[cenwave]:
-
-                # If the segment is not in the dictionary[cenwave], add it.
-                if segment not in dictionary[cenwave].keys():
-
-                    # Declare the keys of the dictionary[cenwave][segment]
-                    dictionary[cenwave][segment] = {
-                        'binned_net': [],
-                        'binned_wl' : [],
-                        'wl_bin_edges': [],
-                        'stdev': [],
-                        'grating': [],
-                        'lp': [],
-                        'target': [],
-                        'rootname': [],
-                        'date': [],
-                        'infiles': [],
-                        'PID': []
-                    }
-                
-                # wl_range contains minimun wavelength, maximun wavelength, and binsize
-                wl_range = wl_info_dict[size][cenwave][segment]
-                min_wl = wl_range[0]
-                max_wl = wl_range[1]
-                binsize = wl_range[2]
-
-                # the wavelength bin edges based on binsize
-                bins = np.arange(min_wl, max_wl+1, binsize)
-
-                # look at each wavelength array of each x1d file
-                for i, wl in enumerate(data_dic[cenwave][segment]['wavelength']):
-
-                    # the wavelength values that fall within the wavelength range of the segment
-                    x_index = np.where((wl >= min_wl) & (wl <= max_wl))
-
-                    # Determine the mean and STD for each bin
-                    mean_net, edges, _ = binned_statistic(
-                        wl[x_index],
-                        data_dic[cenwave][segment]['net'][i][x_index],
-                        "mean", bins=bins
-                    )
-                    std_net = binned_statistic(
-                        wl[x_index],
-                        data_dic[cenwave][segment]['net'][i][x_index],
-                        np.std, bins=bins
-                    )[0]
-
-                    dictionary[cenwave][segment]['binned_net'].append(mean_net)
-                    dictionary[cenwave][segment]['stdev'].append(std_net)
-
-                # Take the information from the data_dic into the dictionary for binned data
-                dictionary[cenwave][segment]['binned_wl'] = np.array(edges[:-1]+np.diff(edges)/2)
-                dictionary[cenwave][segment]['wl_bin_edges'] = np.array(edges)
-                dictionary[cenwave][segment]['best_fit'] = np.empty((
-                    len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints)+1)*2
-                    ))
-                dictionary[cenwave][segment]['best_fit_err'] = np.empty((
-                    len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints)+1)*2
-                    ))
-                dictionary[cenwave][segment]['grating'] = data_dic[cenwave][segment]['grating']
-                dictionary[cenwave][segment]['lp'] = data_dic[cenwave][segment]['lp']
-                dictionary[cenwave][segment]['target'] = data_dic[cenwave][segment]['target']
-                dictionary[cenwave][segment]['rootname'] = data_dic[cenwave][segment]['rootname']
-                dictionary[cenwave][segment]['date'] = data_dic[cenwave][segment]['date']
-                dictionary[cenwave][segment]['infiles'] = data_dic[cenwave][segment]['infiles']
-                dictionary[cenwave][segment]['PID'] = data_dic[cenwave][segment]['PID']
-
-        # reformat + add scaled components to dictionary
-        for cenwave in self.cenwaves:
-            for segment in dictionary[cenwave]:
-                dictionary[cenwave][segment]['binned_net'] = np.reshape(
-                    dictionary[cenwave][segment]['binned_net'],
-                    (len(dictionary[cenwave][segment]['infiles']),
-                    len(dictionary[cenwave][segment]['binned_wl']))) # [date, wl_bin]
-                dictionary[cenwave][segment]['scaled_net'] = dictionary[cenwave][segment]['binned_net']
-
-                dictionary[cenwave][segment]['stdev'] = np.reshape(
-                    dictionary[cenwave][segment]['stdev'],
-                    (len(dictionary[cenwave][segment]['infiles']),
-                    len(dictionary[cenwave][segment]['binned_wl']))) # [date, wl_bin]
-                dictionary[cenwave][segment]['scaled_stdev'] = dictionary[cenwave][segment]['stdev']
-
-                dictionary[cenwave][segment]['scale_factor'] = np.copy(dictionary[cenwave][segment]['binned_net'])*0.0+1.0
-
-                # best fit and best fit error
-                dictionary[cenwave][segment]['best_fit']     = np.empty( (len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints) + 1)*2))
-                dictionary[cenwave][segment]['best_fit_err'] = np.empty( (len(dictionary[cenwave][segment]['binned_wl']), (len(self.breakpoints) + 1)*2))
-        
-        # Don't save it as a class component yet because all the math hasn't been done yet.
-        return (dictionary)
-
-# --------------------------------------------------------------------------------#
-    def get_hduinfo(self, csv_file):
-        """
-        Obtain the header and data information for all the x1d files in the programs used
-        in the FUV TDS Monitor. Only x1d file information is taken for the currently monitored
-        cenwaves.
-
-        A csv file that contains the header information is used to obtain the file path
-        in order to reduce the time it takes to run through all the x1d files and instead
-        only look at files that align with that cenwave, for each cenwave.
-
-        Args:
-            csv_file: The csv file that contains the header information and file path of the
-            x1d files used in this run of the monitor.
-        
-        """
 
         targ_info_dict = {
             1533: {'FUVA': ['GD71'], 'FUVB': ['WD0308-565']},
@@ -1009,77 +892,142 @@ class FUVTDSBase:
             1096: {'FUVB': ['GD71']}
         }
 
+        sizes = ['small', 'large']
+
         # read in inventory file as a pandas DataFrame
         inventory = pd.read_csv(csv_file)
 
         # the dictionary that will hold the data informaton from the x1d files
         data_dic = {}
 
-        for cenwave in self.cenwaves:
+        for size in sizes:
+            if size not in data_dic.keys():
+                data_dic[size] = {}
 
-            # if cenwave is not in the dictionary, add it
-            if cenwave not in data_dic.keys():
-                data_dic[cenwave] = {}
-            
-            # Obtain array-like list of only the x1d files of this cenwave from dataframe
-            files = np.array(inventory['file_path'][(inventory['cenwave'] == cenwave)]).flatten()
-            
-            # iterate over the x1d files of the cenwave
-            for file in files:
-                with fits.open(file, memmap=False) as hdulist:
-                    hdr0 = hdulist[0].header
-                    hdr1 = hdulist[1].header
-                    data = hdulist[1].data
+            for cenwave in self.cenwaves:
 
-                    # iterate over the segments of the x1d file. If there is only one segment
-                    # used, this will only iterate once. If two segments are used, then this
-                    # will iterate twice. data['segment'] will list all segments used. Also
-                    # applies to NUV data as well.
-                    for i, segment in enumerate(data['segment']):
+                # if cenwave is not in the dictionary, add it
+                if cenwave not in data_dic.keys():
+                    data_dic[size][cenwave] = {}
+                
+                # Obtain array-like list of only the x1d files of this cenwave from dataframe
+                files = np.array(inventory['file_path'][(inventory['cenwave'] == cenwave)]).flatten()
+                
+                # iterate over the x1d files of the cenwave
+                for file in files:
+                    with fits.open(file, memmap=False) as hdulist:
+                        hdr0 = hdulist[0].header
+                        hdr1 = hdulist[1].header
+                        data = hdulist[1].data
 
-                        # This line of code removes targets no longer used for that specific mode in TDS
-                        if hdr0['targname'] not in targ_info_dict[cenwave][segment]:
-                            continue
+                        # iterate over the segments of the x1d file. If there is only one segment
+                        # used, this will only iterate once. If two segments are used, then this
+                        # will iterate twice. data['segment'] will list all segments used. Also
+                        # applies to NUV data as well.
+                        for i, segment in enumerate(data['segment']):
 
-                        # if segment is not in the dictionary, add it
-                        if segment not in data_dic[cenwave].keys():
-                            data_dic[cenwave][segment] = {
-                                'net': [],
-                                'wavelength': [],
-                                'grating': [],
-                                'lp': [],
-                                'target': [],
-                                'rootname': [],
-                                'date': [],
-                                'infiles': [],
-                                'PID': []
-                            }
+                            # This line of code removes targets no longer used for that specific mode in TDS
+                            # another thing would be adjusting the csv file so only the targs we want will populate
+                            if hdr0['targname'] not in targ_info_dict[cenwave][segment]:
+                                continue
 
-                        # Add the data and header information into the data dictionary to be used later
-                        data_dic[cenwave][segment]['net'].append(np.array(data['net'][i][data['dq_wgt'][i] != 0]))
-                        data_dic[cenwave][segment]['wavelength'].append(np.array(data['wavelength'][i][data['dq_wgt'][i] != 0]))
+                            # if segment is not in the dictionary, add it
+                            if segment not in data_dic[size][cenwave].keys():
+                                data_dic[size][cenwave][segment] = {
+                                    'binned_net': [],
+                                    'binned_wl' : [],
+                                    'wl_bin_edges': [],
+                                    'stdev': [],
+                                    'grating': [],
+                                    'lp': [],
+                                    'target': [],
+                                    'rootname': [],
+                                    'date': [],
+                                    'infiles': [],
+                                    'PID': []
+                                }
+                            
+                            # min wavelength, max wavelength, and binsize of this mode and size
+                            min_wl, max_wl, binsize = wl_info_dict[size][cenwave][segment]
 
-                        data_dic[cenwave][segment]['grating'].append(hdr0['opt_elem'])
-                        data_dic[cenwave][segment]['lp'].append(hdr0['life_adj'])
-                        data_dic[cenwave][segment]['target'].append(hdr0['targname'])
-                        data_dic[cenwave][segment]['rootname'].append(hdr0['rootname'])
-                        data_dic[cenwave][segment]['date'].append(Time(hdr1['date-obs'], format='fits').decimalyear) # change from mjd to decimal year
-                        data_dic[cenwave][segment]['infiles'].append(file)
-                        data_dic[cenwave][segment]['PID'].append(hdr0['proposid'])
+                            # wavelength bin edges based on binsize
+                            bins = np.arange(min_wl, max_wl+1, binsize)
 
-        # change to np.array
-        for cenwave in data_dic:
-            for segment in data_dic[cenwave]:
-                data_dic[cenwave][segment]['grating'] = np.array(data_dic[cenwave][segment]['grating'])
-                data_dic[cenwave][segment]['lp'] = np.array(data_dic[cenwave][segment]['lp'])
-                data_dic[cenwave][segment]['target'] = np.array(data_dic[cenwave][segment]['target'])
-                data_dic[cenwave][segment]['rootname'] = np.array(data_dic[cenwave][segment]['rootname'])
-                data_dic[cenwave][segment]['date'] = np.array(data_dic[cenwave][segment]['date'])
-                data_dic[cenwave][segment]['infiles'] = np.array(data_dic[cenwave][segment]['infiles'])
-                data_dic[cenwave][segment]['PID'] = np.array(data_dic[cenwave][segment]['PID'])
+                            dqwgt = data['dq_wgt'][i] != 0
+                            wl    = data['wavelength'][i][dqwgt]
+                            net   = data['net'][i][dqwgt]
+
+                            x_index = np.where((wl >= min_wl) & (wl <= max_wl))
+
+                            # determine the mean and std for each bin
+                            mean_net, edges, _ = binned_statistic(
+                                wl[x_index],
+                                net[x_index],
+                                "mean", bins=bins
+                            )
+
+                            std_net = binned_statistic(
+                                wl[x_index],
+                                net[x_index],
+                                np.std, bins=bins
+                            )[0]
+
+                            # Add data to dictionary
+                            data_dic[size][cenwave][segment]['binned_net'].append(mean_net)
+                            data_dic[size][cenwave][segment]['stdev'].append(std_net)
+
+                            # These will all be the same for any file of this size and mode, so no need to append
+                            data_dic[size][cenwave][segment]['binned_wl'] = np.array(edges[:-1]+np.diff(edges)/2)
+                            data_dic[size][cenwave][segment]['wl_bin_edges'] = edges
+                            data_dic[size][cenwave][segment]['best_fit'] = np.empty((
+                                len(data_dic[size][cenwave][segment]['binned_wl']), (len(self.breakpoints)+1)*2
+                            ))
+                            data_dic[size][cenwave][segment]['best_fit_err'] = np.empty((
+                                len(data_dic[size][cenwave][segment]['binned_wl']), (len(self.breakpoints)+1)*2
+                            ))
+
+                            data_dic[size][cenwave][segment]['grating'].append(hdr0['opt_elem'])
+                            data_dic[size][cenwave][segment]['lp'].append(hdr0['life_adj'])
+                            data_dic[size][cenwave][segment]['target'].append(hdr0['targname'])
+                            data_dic[size][cenwave][segment]['rootname'].append(hdr0['rootname'])
+                            data_dic[size][cenwave][segment]['date'].append(Time(hdr1['date-obs'], format='fits').decimalyear) # change from mjd to decimal year
+                            data_dic[size][cenwave][segment]['infiles'].append(file)
+                            data_dic[size][cenwave][segment]['PID'].append(hdr0['proposid'])
+
+        # Change some sections into np.arrays and reformat + add scaled components to dictionary
+        for size in sizes:
+            for cenwave in data_dic[size]:
+                for segment in data_dic[size][cenwave]:
+                    # change to np.array
+                    data_dic[size][cenwave][segment]['grating'] = np.array(data_dic[size][cenwave][segment]['grating'])
+                    data_dic[size][cenwave][segment]['lp'] = np.array(data_dic[size][cenwave][segment]['lp'])
+                    data_dic[size][cenwave][segment]['target'] = np.array(data_dic[size][cenwave][segment]['target'])
+                    data_dic[size][cenwave][segment]['rootname'] = np.array(data_dic[size][cenwave][segment]['rootname'])
+                    data_dic[size][cenwave][segment]['date'] = np.array(data_dic[size][cenwave][segment]['date'])
+                    data_dic[size][cenwave][segment]['infiles'] = np.array(data_dic[size][cenwave][segment]['infiles'])
+                    data_dic[size][cenwave][segment]['PID'] = np.array(data_dic[size][cenwave][segment]['PID'])
+        
+                     # reformat + add scaled components to dictionary
+                    data_dic[size][cenwave][segment]['binned_net'] = np.reshape(
+                        data_dic[size][cenwave][segment]['binned_net'],
+                        (len(data_dic[size][cenwave][segment]['infiles']),
+                        len(data_dic[size][cenwave][segment]['binned_wl']))) # [date, wl_bin]
+                    data_dic[size][cenwave][segment]['scaled_net'] = data_dic[size][cenwave][segment]['binned_net']
+
+                    data_dic[size][cenwave][segment]['stdev'] = np.reshape(
+                        data_dic[size][cenwave][segment]['stdev'],
+                        (len(data_dic[size][cenwave][segment]['infiles']),
+                        len(data_dic[size][cenwave][segment]['binned_wl']))) # [date, wl_bin]
+                    data_dic[size][cenwave][segment]['scaled_stdev'] = data_dic[size][cenwave][segment]['stdev']
+
+                    data_dic[size][cenwave][segment]['scale_factor'] = np.copy(data_dic[size][cenwave][segment]['binned_net'])*0.0+1.0
+
+                    # best fit and best fit error
+                    data_dic[size][cenwave][segment]['best_fit']     = np.empty( (len(data_dic[size][cenwave][segment]['binned_wl']), (len(self.breakpoints) + 1)*2))
+                    data_dic[size][cenwave][segment]['best_fit_err'] = np.empty( (len(data_dic[size][cenwave][segment]['binned_wl']), (len(self.breakpoints) + 1)*2))
         
         # Don't save it as a class component yet because all the math hasn't been done yet.
-        return (data_dic)
+        return (data_dic['small'], data_dic['large'])
 
 # --------------------------------------------------------------------------------#
     def parse_infiles(self, PIDs, csv_file, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
