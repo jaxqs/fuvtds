@@ -15,6 +15,7 @@ from plotly.subplots import make_subplots
 
 from urllib import request
 from astropy.convolution import Box1DKernel, convolve
+from scipy.interpolate import interp1d
 
 """
 This is the base class for the FUVTDS Monitor that will do all
@@ -29,7 +30,6 @@ Notes to do in the future:
     - Put outputs into a log file instead out outright outputting
     - Fix the bug that affects the LP3 -> LP4 -> LP3, present in 1280 FUVB
     - Fix errors bug
-    - Add in a function for 'broken lines' that can be called in for the plotting class
     - add highlighted areas in residual plots in plotting class for 2% and 5%
     - add in current tdstab as a class input in plotting function
 
@@ -99,6 +99,112 @@ class FUVTDSBase:
         self.small = self.scale_to_1_all_data(small)
         self.large = self.scale_to_1_all_data(large)
             
+# --------------------------------------------------------------------------------#
+    def _broken_lines(self, x, *p):
+        """
+        Fitting function for a segmented line with n_bp breakpoints.
+        
+        Args:
+            x: date - reftime
+            *a: initial parameters guess (p0, p)
+        """
+
+        # The actual function that is done.
+        # Uses date - reftime and initial parameters
+        # and returns the yvalues of all the linear fits
+        model_y = np.zeros(len(x))
+
+        # number of breakpoints
+        n_bp = 0
+
+        # number of parameters
+        n_pars = len(p)
+
+        if n_pars == 1:
+
+            model_y = [p[0] for e in x]
+        
+        elif n_pars == 2:
+
+            # If there are only two parameters (aka zero breakpoints), then
+            # do a single linear fit for each time value of the exposure
+            # this will be date - reftime
+            y = [p[0] + p[1] * e for e in x]
+        
+        # If there is an even amount of parameters (as there should), do the the fit
+        elif not len(p) % 2:
+
+            # Removees the intercept and the slope (first two elements in p0) and 
+            # counts the number of breakpoints we are working with
+            n_bp = int((len(p) - 2) // 2)
+
+            # x-values == number of breakpoints
+            x_bp = np.zeros(n_bp)
+
+            # y-values == number of breakpoints, scaled net count related
+            y_bp = np.zeros(n_bp)
+
+            # set first breakpoint to first value in x array, time-related
+            x_bp[0] = p[2]
+
+            # Do linear fit with the first handful of parameters where
+            #       p[0]: intercept, initial parameters
+            #       p[1]: slope, initial parameters
+            #       p[2]: first breakpoint, time-related
+            y_bp[0] = p[0] + p[1] * p[2]
+
+            # Loop over the amount of breakpoints, skipping the first breakpoint
+            for j in range(1, n_bp):
+
+                # set x value to the next breakpoint
+                x_bp[j] = p[2 * (j+1)]
+
+                # Calculate the yvalue of that breakpoint
+                #       y_bp[j - 1]: last y value, intercept
+                #       p[2 * j + 1]: the next slope value of this breakpoint, slope
+                #       x_bp[j] - x_bp[j - 1]: subtract the last breakpoint to the current one to be time-related, time-related x value
+                y_bp[j] = y_bp[j - 1] + p[2 * j + 1] * (x_bp[j] - x_bp[j - 1])
+            
+            # Loop over the number of xvalues, aka number of date values from all exposures
+            for i, _ in enumerate(x):
+
+                # Get first in time line segment
+                if x[i] < x_bp[0]:
+
+                    # Do a linear fit
+                    yy = p[0] + p[1] * x[i]
+                
+                # Get last in time line segment
+                elif x[i] >= x_bp[-1]:
+
+                    # Do a linear fit
+                    #       y_bp[-1]: last yvalue breakpoint related, intercept
+                    #       p[-1]: last slope value, initial parameters
+                    #       (x[i] - p[-2]): last date in time subtracted by last breakpoint in initial parameters
+                    yy = y_bp[-1] + p[-1] * (x[i] - p[-2])
+                
+                # Get the in between line segments
+                elif n_bp > 1:
+
+                    # Loop over the breakpoints
+                    for j in range(n_bp - 1):
+
+                        # Get the date values in between the breakpoints
+                        if (x[i] >= x_bp[j]) and (x[i] < x_bp[j+1]):
+
+                            # Do a linear fit
+                            #       y_bp[j]: yvalue of this time period as intercept
+                            #       p[2 * (j + 1) + 1]: slope value corresponding to this time segment, slope
+                            #       (x[i] - x_bp[j]): date in time subtracted by this breakpoint, time-related
+                            yy = y_bp[j] + p[2 * (j + 1) + 1] * (x[i] - x_bp[j])
+                            break
+                # Put the fitted yvalues into an array
+                model_y[i] = yy
+            
+        else:
+            print(f'Warning, number of fit parameters {len(p)}')
+            print('is not even, fit may be rubbish.')
+        return (model_y)
 # --------------------------------------------------------------------------------#
     def scale_to_1_all_data(self, dictionary):
         """
@@ -348,102 +454,7 @@ class FUVTDSBase:
                 status = -3
             
             if status == 0:
-
-                # The actual function that is done.
-                # Uses date - reftime and initial parameters
-                # and returns the yvalues of all the linear fits
-                model_y = np.zeros(len(x))
-
-                # number of breakpoints
-                n_bp = 0
-
-                # number of parameters
-                n_pars = len(p)
-
-                if n_pars == 1:
-
-                    model_y = [p[0] for e in x]
-                
-                elif n_pars == 2:
-
-                    # If there are only two parameters (aka zero breakpoints), then
-                    # do a single linear fit for each time value of the exposure
-                    # this will be date - reftime
-                    y = [p[0] + p[1] * e for e in x]
-                
-                # If there is an even amount of parameters (as there should), do the the fit
-                elif not len(p) % 2:
-
-                    # Removees the intercept and the slope (first two elements in p0) and 
-                    # counts the number of breakpoints we are working with
-                    n_bp = int((len(p) - 2) // 2)
-
-                    # x-values == number of breakpoints
-                    x_bp = np.zeros(n_bp)
-
-                    # y-values == number of breakpoints, scaled net count related
-                    y_bp = np.zeros(n_bp)
-
-                    # set first breakpoint to first value in x array, time-related
-                    x_bp[0] = p[2]
-
-                    # Do linear fit with the first handful of parameters where
-                    #       p[0]: intercept, initial parameters
-                    #       p[1]: slope, initial parameters
-                    #       p[2]: first breakpoint, time-related
-                    y_bp[0] = p[0] + p[1] * p[2]
-
-                    # Loop over the amount of breakpoints, skipping the first breakpoint
-                    for j in range(1, n_bp):
-
-                        # set x value to the next breakpoint
-                        x_bp[j] = p[2 * (j+1)]
-
-                        # Calculate the yvalue of that breakpoint
-                        #       y_bp[j - 1]: last y value, intercept
-                        #       p[2 * j + 1]: the next slope value of this breakpoint, slope
-                        #       x_bp[j] - x_bp[j - 1]: subtract the last breakpoint to the current one to be time-related, time-related x value
-                        y_bp[j] = y_bp[j - 1] + p[2 * j + 1] * (x_bp[j] - x_bp[j - 1])
-                    
-                    # Loop over the number of xvalues, aka number of date values from all exposures
-                    for i, _ in enumerate(x):
-
-                        # Get first in time line segment
-                        if x[i] < x_bp[0]:
-
-                            # Do a linear fit
-                            yy = p[0] + p[1] * x[i]
-                        
-                        # Get last in time line segment
-                        elif x[i] >= x_bp[-1]:
-
-                            # Do a linear fit
-                            #       y_bp[-1]: last yvalue breakpoint related, intercept
-                            #       p[-1]: last slope value, initial parameters
-                            #       (x[i] - p[-2]): last date in time subtracted by last breakpoint in initial parameters
-                            yy = y_bp[-1] + p[-1] * (x[i] - p[-2])
-                        
-                        # Get the in between line segments
-                        elif n_bp > 1:
-
-                            # Loop over the breakpoints
-                            for j in range(n_bp - 1):
-
-                                # Get the date values in between the breakpoints
-                                if (x[i] >= x_bp[j]) and (x[i] < x_bp[j+1]):
-
-                                    # Do a linear fit
-                                    #       y_bp[j]: yvalue of this time period as intercept
-                                    #       p[2 * (j + 1) + 1]: slope value corresponding to this time segment, slope
-                                    #       (x[i] - x_bp[j]): date in time subtracted by this breakpoint, time-related
-                                    yy = y_bp[j] + p[2 * (j + 1) + 1] * (x[i] - x_bp[j])
-                                    break
-                        # Put the fitted yvalues into an array
-                        model_y[i] = yy
-                    
-                else:
-                    print(f'Warning, number of fit parameters {len(p)}')
-                    print('is not even, fit may be rubbish.')
+                model_y = self._broken_lines(x, *p)
 
             weighted_deviation = (y - model_y) / err
 
@@ -1221,10 +1232,12 @@ class FUVTDSMonitor(object):
     # adding the life time positions, hv raises, and whatever else lol
 
 
-    def __init__(self, TDSData) -> None:
+    def __init__(self, TDSData, current_tdstab=None, new_tdstab=None) -> None:
         """
         Args:
             TDSData: object that contains all the relavent information of the TDS analysis.
+            current_tdstab: the tdstab reference file currently used in crds
+            new_tdstab: the tdstab reference file that has been newly created with new slopes
         """
         self.trends = TDSData
 
@@ -1237,7 +1250,55 @@ class FUVTDSMonitor(object):
         # plotting
         self.solar  = self.get_solar_data()
         self.plot_solar_flux()
-        self.rel_sens()
+        self.rel_sens(current_tdstab)
+
+    def tds_backout(self,response, wavelength, mjd, opt_elem, aperture, segment, cenwave, tdstab=None):
+        """
+        Backs out TDS from response curve
+        """
+
+        #-------#
+        # get correction array
+        #-------#
+        tds_data = fits.getdata( tdstab,ext=1 )
+        REF_TIME = fits.getval( tdstab,'REF_TIME',ext=1) #Should be 52922.0 (2003.77)
+        mode_index = np.where( (tds_data['OPT_ELEM'] == opt_elem) &
+                            (tds_data['APERTURE'] == aperture) &
+                            (tds_data['SEGMENT'] == segment) &
+                            (tds_data['CENWAVE'] == cenwave))[0]
+
+        mode_line = tds_data[ mode_index ]
+
+        tds_nt = mode_line['NT'][0]
+        tds_wavelength = mode_line['WAVELENGTH'][0]
+        smaller_index = np.where( mode_line['TIME'][0][:tds_nt] < mjd )[0]
+        time_index = smaller_index.max()
+
+        tds_slope = mode_line['SLOPE'][0]
+        tds_intercept = mode_line['INTERCEPT'][0]
+
+        correction_array = np.zeros( len(tds_wavelength) )
+
+        def calculate_drop( time, ref_time, slope, intercept ):
+            """
+            Equation comes from the current ICD-47
+            """
+
+            frac_drop = ( (( time - ref_time ) * slope) / (365.25*100) ) + intercept
+            return frac_drop
+        
+        for i,wave in enumerate( tds_wavelength ):
+            correction = calculate_drop( mjd, REF_TIME, tds_slope[time_index,i], tds_intercept[time_index,i] )
+            correction_array[i] = correction
+
+        #-------
+        # interpolate onto input arrays
+        #------
+
+        interp_function = interp1d( tds_wavelength, correction_array, 1 )
+        interp_correction = interp_function( wavelength )
+
+        return response / interp_correction
     
     # add vertical lines
     # REVAMP THIS THIS DOESNT REALLY WORK AHHH          
@@ -1385,15 +1446,12 @@ class FUVTDSMonitor(object):
         fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
         fig.write_html('tds_solar_flux.html') #maybe add the date?
     
-    def rel_sens(self):
+    def rel_sens(self, current_tdstab):
         """
         Plot the relative sensitivity of all the monitored modes and residuals against best fit
         parameters and current tdstab.
         
         need to add:
-        -residuals
-        -fitted lines
-        -tdstab current
         -verticcal lines
         """
 
@@ -1449,9 +1507,81 @@ class FUVTDSMonitor(object):
                                 "<extra></extra>"
                         )
 
+                        trace2 = go.Scatter(
+                            x=trends[cenwave][segment]['date'],
+                            y=self.trends._broken_lines(
+                                trends[cenwave][segment]['date'] - self.trends.reftime,
+                                *trends[cenwave][segment]['best_fit'][i,:]
+                            ),
+                            mode='lines',
+                            name='best fit line'
+                        )
+
+                        residuals = 100.0*(trends[cenwave][segment]['scaled_net'][:,i] -
+                                           self.trends._broken_lines(
+                                               trends[cenwave][segment]['date'] - self.trends.reftime,
+                                               *trends[cenwave][segment]['best_fit'][i,:]
+                                               )) / self.trends._broken_lines(
+                                                   trends[cenwave][segment]['date'] - self.trends.reftime,
+                                                   *trends[cenwave][segment]['best_fit'][i,:])
+                        trace3 = go.Scatter(
+                            x=trends[cenwave][segment]['date'],
+                            y=residuals,
+                            mode='markers',
+                            marker_color='rgba(255, 182, 193, .9)',
+                            name=f"{trends[cenwave][segment]['grating'][0]}/{cenwave}/{segment} {trends[cenwave][segment]['wl_bin_edges'][i]} - {trends[cenwave][segment]['wl_bin_edges'][i+1]}",
+                            customdata= np.stack(
+                                    (trends[cenwave][segment]['rootname'],
+                                     trends[cenwave][segment]['lp'],
+                                     trends[cenwave][segment]['PID'],
+                                     trends[cenwave][segment]['target']),
+                                     axis=-1
+                                ),
+                            hovertemplate=
+                                'Rootname: %{customdata[0]}<br>'+
+                                'Life_adj: %{customdata[1]}<br>'+
+                                'Proposid: %{customdata[2]}<br>'+
+                                'Target: %{customdata[3]}'
+                                "<extra></extra>"
+                        )
+
+                        ymodel1 = np.transpose([1.0/self.tds_backout(
+                            1.0, trends[cenwave][segment]['binned_wl'],
+                            Time(mjd, format='decimalyear').mjd,
+                            trends[cenwave][segment]['grating'][0],
+                            'ANY', segment, cenwave, current_tdstab) for mjd in trends[cenwave][segment]['date']])
+
+                        residuals1 = 100.0*(trends[cenwave][segment]['scaled_net'][:,i] - ymodel1[i]) / ymodel1[i]
+
+                        trace4 = go.Scatter(
+                            x=trends[cenwave][segment]['date'],
+                            y=residuals1,
+                            mode='markers',
+                            marker_color='rgba(152, 0, 0, .8)',
+                            name=f"{trends[cenwave][segment]['grating'][0]}/{cenwave}/{segment} {trends[cenwave][segment]['wl_bin_edges'][i]} - {trends[cenwave][segment]['wl_bin_edges'][i+1]}",
+                            customdata= np.stack(
+                                    (trends[cenwave][segment]['rootname'],
+                                     trends[cenwave][segment]['lp'],
+                                     trends[cenwave][segment]['PID'],
+                                     trends[cenwave][segment]['target']),
+                                     axis=-1
+                                ),
+                            hovertemplate=
+                                'Rootname: %{customdata[0]}<br>'+
+                                'Life_adj: %{customdata[1]}<br>'+
+                                'Proposid: %{customdata[2]}<br>'+
+                                'Target: %{customdata[3]}'
+                                "<extra></extra>"
+                        )
+
                         # add the traces to the plot
                         fig.add_trace(trace, row=1, col=1)
-                        fig.add_trace(trace, row=2, col=1)
+                        fig.add_trace(trace2, row=1, col=1)
+
+                        # residuals 
+                        fig.add_trace(trace3, row=2, col=1)
+                        fig.add_trace(trace4, row=2, col=1)
+
                     
                     # Add the total wavelength bins used to list
                     tot_wl_bins.append(i+1)
@@ -1464,7 +1594,7 @@ class FUVTDSMonitor(object):
             
             # This will keep only the wavelength bins of the first mode visible 
             # (etc, first 34 bins * 2 for both plots) 
-            for k in range(tot_wl_bins[0]*2, ld):
+            for k in range(tot_wl_bins[0]*4, ld):
                 fig.update_traces(visible=False, selector=k)
             
             def create_layout_button(k, label):
@@ -1479,10 +1609,10 @@ class FUVTDSMonitor(object):
                 tot = 0
                 for i in range(k+1):
                     if i != 0:
-                        tot+= tot_wl_bins[i-1]*2
+                        tot+= tot_wl_bins[i-1]*4
     
                 # Loop over the visibility array to only select True for ones corresponding to mode selected
-                for tr in range(tot, tot_wl_bins[k]*2+tot):
+                for tr in range(tot, tot_wl_bins[k]*4+tot):
                     visibility[tr] = True
 
                 # dictionary of the button
