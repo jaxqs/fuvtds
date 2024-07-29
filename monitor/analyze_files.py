@@ -98,9 +98,10 @@ def get_x1ds_data(file_path):
             hdu[0].header['fppos'],
             hdu[1].header['expstart']) == True,
         'wl': len(hdu[1].data['wavelength']) != 0,
-        'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01'))
+        'lp4': (hdu[0].header['opt_elem'] != 'G160M') | ((hdu[0].header['life_adj'] != 4) | (hdu[1].header['date-obs'] < '2022-10-01')),
+        'newtds': hdu[1].header['date-obs'] < '2017-10-02'
     }
-    if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']) & (criteria['lp4']):
+    if (criteria['exptime']) & (criteria['bad_targs']) & (criteria['bad_items']) & (criteria['fppos_check']) & (criteria['wl']) & (criteria['lp4']) & (criteria['newtds']):
         x1d_table = pd.DataFrame(
             {'rootname': [hdu[0].header['rootname']],
             'opt_elem': [hdu[0].header['opt_elem']],
@@ -144,7 +145,7 @@ def get_pids(pid_file):
     Returns:
         all_programs: a list of strings of all the PIDs.
     """
-    programs_df = pd.read_csv(pid_file, delim_whitespace=True)
+    programs_df = pd.read_csv(pid_file)
     all_programs = []
     for col, col_data in programs_df.items():
         all_programs += col_data.to_numpy(dtype=str).tolist()
@@ -182,7 +183,7 @@ if __name__ == "__main__":
     # change these as needed
     datadir = '/grp/hst/cos2/cosmo/'
     pattern = '*x1d.fits*'
-    inventory = 'bad_inventory.csv'
+    inventory = 'oldtds_inventory.csv'
     pid_file = '/Users/jhernandez/Desktop/fuvtds/monitor/fuvtds_analysis_list.dat'
 
     analyze_files(datadir, pid_file, pattern, inventory)
