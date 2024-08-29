@@ -580,7 +580,7 @@ class FUVTDSBase:
             new_table.append(lp6)
             print(f"+++ Scaling LP6 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp6['file_path'].iloc[0]}")
 
-        if (5 in table['life_adj']) & (4 in table['life_adj']):
+        if (5 in np.array(table['life_adj']).flatten()) & (4 in np.array(table['life_adj']).flatten()):
 
             lp5_indx_wd308 = np.where((table['life_adj'] == 5) &
                                     (table['targname'] == 'WD0308-565'))
@@ -593,35 +593,23 @@ class FUVTDSBase:
                                     (table['targname'] == 'GD71'))
             
             if (cenwave > 1500) & (segment == 'FUVA'):
-                lp4_indx = lp4_indx_gd71
-                lp5_indx = lp5_indx_gd71
+                lp4 = lp4_indx_gd71
+                lp5 = lp5_indx_gd71
             else: 
-                lp4_indx = lp4_indx_wd308
-                lp5_indx = lp5_indx_wd308
+                lp4 = lp4_indx_wd308
+                lp5 = lp5_indx_wd308
 
-            lp4_indx = lp4_indx[0]
-            lp5_indx = lp5_indx[0]
-
-            a = find_nearest(table['date-obs'][lp4_indx], 
-                            table['date-obs'][lp5_indx[0]])
+            a = find_nearest(np.array(lp4['date-obs']).flatten(), 
+                            np.array(lp5['date-obs']).flatten()[0])
             
-            for i, _ in enumerate(table['binned_wl']):
-                #Scale LP5 data
-                table['scale_factor'][lp5_indx, i] = (
-                    table['binned_net'][lp4_indx[a], i] /
-                    table['binned_net'][lp5_indx[0], i]
-                )
-                table['scaled_net'][lp5_indx, i] = (
-                    table['scaled_net'][lp5_indx, i] *
-                    table['scale_factor'][lp5_indx, i]
-                )
-                
-                # calculate error
-                table['scaled_stdev'][lp5_indx, i] = calc_error(
-                    i, table, lp4_indx, lp5_indx
-                )
-            print(f"+++ Scaling LP5 to LP4 using data from datasets: {table['infiles'][lp4_indx[a]]} {table['infiles'][lp5_indx[0]]}")
+            lp5 = scale(lp5, lp4, a)
+            new_table.append(lp5)
+
+            print(f"+++ Scaling LP5 to LP4 using data from datasets: {lp5['file_path'].iloc[a]} {lp6['file_path'].iloc[0]}")
         
+
+
+
 
 
         if (4 in table['life_adj']) & (3 in table['life_adj']):
@@ -699,6 +687,9 @@ class FUVTDSBase:
                     )
 
                     print ('+++ Scaling LP3 to LP4 using data from datasets: ', table['infiles'][lp3_indx2[0]+1], table['infiles'][lp3_indx2[0]])
+
+
+
 
         if (3 in table['life_adj']) & (2 in table['life_adj']):
 
@@ -995,6 +986,7 @@ class FUVTDSBase:
                             'proposid': [hdr0['proposid']],
                             'targname': [hdr0['targname']],
                             'date-obs': [Time(hdr1['date-obs'], format='fits').decimalyear],
+                            'date-obs-fits': [hdr1['date-obs']],
                             'exptime': [hdr1['exptime']],
                             'file_path': [file],
                             'small_binned_net': [small_mean_net],
@@ -1056,15 +1048,20 @@ class FUVTDSBase:
 
        # If dataframe tables were created, sort by date
        if len(tables) != 0:
-           tables = tables.sort_values(by=['date-obs'], ignore_index=True)
+           tables = tables.sort_values(by=['date-obs-fits'], ignore_index=True)
            
            csv_file_save = tables.drop(columns=['small_binned_net', 
                                                 'small_binned_wl', 
                                                 'small_wl_edges',
                                                 'large_binned_net', 
                                                 'large_binned_wl', 
-                                                'large_wl_edges'
+                                                'large_wl_edges',
+                                                'small_stdev',
+                                                'large_stdev',
+                                                'date-obs'
                                                 ])
+           csv_file_save = csv_file_save.rename(columns={'date-obs-fits': 'date-obs'})
+           tables = tables.drop(columns=['date-obs-fits'])
            if os.path.exists(csv_file):
                csv_file_save.to_csv(csv_file, mode='w+')
            else:
