@@ -514,11 +514,20 @@ class FUVTDSBase:
     def scalings(self, table):
         """
         """
-
+        tables = []
         for segment in set(table['segment']):
             with mp.Pool(16) as pool:
-                pool.starmap(self.scale_lps, zip(set(table['cenwave']), repeat(segment), repeat(table)))
+                tab = pool.starmap(self.scale_lps, zip(set(table['cenwave']), repeat(segment), repeat(table)))
             pool.terminate
+
+            tab = pd.concat(tab, ignore_index=True)
+            tables.append(tab)
+            
+        new_table = pd.concat(tables, ignore_index=True)
+        new_table = new_table.sort_values(by=['date-obs'], ignore_index=True)
+
+        return(new_table)
+        
 # --------------------------------------------------------------------------------#
     def scale_lps(self, cenwave, segment, table):
         """
@@ -548,10 +557,10 @@ class FUVTDSBase:
         
         table = table[(table['cenwave'] == cenwave) & (table['segment'] == segment)]
 
+
         if len(table) == 0:
             return
         
-        new_table = []
         if (6 in np.array(table['life_adj']).flatten()) & (4 in np.array(table['life_adj']).flatten()):
             
             lp6_wd308 = table[(table['life_adj'] == 6) &
@@ -577,207 +586,178 @@ class FUVTDSBase:
                             np.array(lp6['date-obs']).flatten()[0])
         
             lp6 = scale(lp6, lp4, a)
-            new_table.append(lp6)
+
+            table.loc[table['life_adj'] == 6] = lp6
+            
+
             print(f"+++ Scaling LP6 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp6['file_path'].iloc[0]}")
 
         if (5 in np.array(table['life_adj']).flatten()) & (4 in np.array(table['life_adj']).flatten()):
 
-            lp5_indx_wd308 = np.where((table['life_adj'] == 5) &
-                                    (table['targname'] == 'WD0308-565'))
-            lp5_indx_gd71 = np.where((table['life_adj'] == 5) &
-                                    (table['targname'] == 'GD71'))
+            lp5_wd308 = table[(table['life_adj'] == 5) &
+                                    (table['targname'] == 'WD0308-565')]
+            lp5_gd71 = table[(table['life_adj'] == 5) &
+                                    (table['targname'] == 'GD71')]
             
-            lp4_indx_wd308 = np.where((table['life_adj'] == 4) &
-                                    (table['targname'] == 'WD0308-565'))
-            lp4_indx_gd71 = np.where((table['life_adj'] == 4) &
-                                    (table['targname'] == 'GD71'))
+            lp4_wd308 = table[(table['life_adj'] == 4) &
+                                    (table['targname'] == 'WD0308-565')]
+            lp4_gd71 = table[(table['life_adj'] == 4) &
+                                    (table['targname'] == 'GD71')]
             
             if (cenwave > 1500) & (segment == 'FUVA'):
-                lp4 = lp4_indx_gd71
-                lp5 = lp5_indx_gd71
+                lp4 = lp4_gd71
+                lp5 = lp5_gd71
             else: 
-                lp4 = lp4_indx_wd308
-                lp5 = lp5_indx_wd308
+                lp4 = lp4_wd308
+                lp5 = lp5_wd308
 
             a = find_nearest(np.array(lp4['date-obs']).flatten(), 
                             np.array(lp5['date-obs']).flatten()[0])
             
             lp5 = scale(lp5, lp4, a)
-            new_table.append(lp5)
+            table.loc[table['life_adj'] == 5] = lp5
 
-            print(f"+++ Scaling LP5 to LP4 using data from datasets: {lp5['file_path'].iloc[a]} {lp6['file_path'].iloc[0]}")
+            print(f"+++ Scaling LP5 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp5['file_path'].iloc[0]}")
         
 
-
-
-
-
-        if (4 in table['life_adj']) & (3 in table['life_adj']):
-            lp4_indx_wd308 = np.where((table['life_adj'] >= 4) &
-                                    (table['targname'] == 'WD0308-565'))
-            lp4_indx_gd71 = np.where((table['life_adj'] >= 4) &
-                                    (table['targname'] == 'GD71'))
+        # LP3 to LP4 to LP3
+        if (4 in np.array(table['life_adj']).flatten()) & (3 in np.array(table['life_adj']).flatten()):
             
-            lp3_indx1_wd308 = np.where((table['life_adj'] == 3) &
-                                    (table['targname'] == 'WD0308-565') &
-                                    (table['date-obs'] < 2019.0))
-            lp3_indx1_gd71 = np.where((table['life_adj'] == 3) &
-                                    (table['targname'] == 'GD71')&
-                                    (table['date-obs'] < 2019.0))
+            # scale lp3 to lp4
+            lp4_wd308 = table[(table['life_adj'] >= 4) &
+                            (table['targname'] == 'WD0308-565')]
+            lp4_gd71 = table[(table['life_adj'] >= 4) &
+                            (table['targname'] == 'GD71')]
             
-            lp3_indx2_wd308 = np.where((table['life_adj'] == 3) &
-                                    (table['targname'] == 'WD0308-565') &
-                                    (table['date-obs'] > 2019.0))
-            lp3_indx2_gd71 = np.where((table['life_adj'] == 3) &
-                                    (table['targname'] == 'GD71')&
-                                    (table['date-obs'] > 2019.0))
+            lp3_wd308 = table[(table['life_adj'] == 3) &
+                                (table['targname'] == 'WD0308-565') &
+                                (table['date-obs'] < 2019.0)]
+            lp3_gd71 = table[(table['life_adj'] == 3) &
+                                (table['targname'] == 'GD71')&
+                                (table['date-obs'] < 2019.0)]
             
-
+            lp3_wd308_2 = table[(table['life_adj'] == 3) &
+                                (table['targname'] == 'WD0308-565') &
+                                (table['date-obs'] > 2019.0)]
+            lp3_gd71_2 = table[(table['life_adj'] == 3) &
+                                (table['targname'] == 'GD71')&
+                                (table['date-obs'] > 2019.0)]
+            
             if (cenwave > 1500) & (segment == 'FUVA'):
-                lp3_indx1 = lp3_indx1_gd71
-                lp3_indx2 = lp3_indx2_gd71
-                lp4_indx  = lp4_indx_gd71
+                lp3   = lp3_gd71 #LP3 indicies after LP3->LP4->LP3.
+                lp4   = lp4_gd71
+                lp3_2 = lp3_gd71_2
             else: 
-                lp3_indx1 = lp3_indx1_wd308
-                lp3_indx2 = lp3_indx2_wd308
-                lp4_indx  = lp4_indx_wd308
+                lp3   = lp3_wd308 #LP3 indicies after LP3->LP4->LP3.
+                lp4   = lp4_wd308
+                lp3_2 = lp3_wd308_2
+            
+            if len(lp3_2) != 0:
+                lp4 = pd.concat([lp4, lp3_2], ignore_index=True) #lp4_indx needs to contain the post 2021 lp3_indx
+            
+            if cenwave != 800:
+                a = find_nearest(np.array(lp3['date-obs']).flatten(), 
+                            np.array(lp4['date-obs']).flatten()[0])
+            
+                lp4 = scale(lp4, lp3, a)
+                table.loc[table['life_adj'] == 4] = lp4
 
-            lp3_indx1 = lp3_indx1[0] #LP3 indicies before LP3->LP4->LP3.
-            lp3_indx2 = lp3_indx2[0] #LP3 indicies after LP3->LP4->LP3.
-            lp4_indx  = np.concatenate((lp4_indx[0], lp3_indx2)) #lp4_indx needs to contain the post 2021 lp3_indx
+                print(f"+++ Scaling LP4 to LP3 using data from datasets: {lp3['file_path'].iloc[a]} {lp4['file_path'].iloc[0]}")
+            
+                if len(lp3_2) != 0:
+                    size = ['small', 'large']
 
-            for i, _ in enumerate(table['binned_wl']):
-                #Scale LP4 and LP3 after LP4->LP3
-                if cenwave != 800:
-                    table['scale_factor'][lp4_indx, i] = (
-                        table['binned_net'][lp4_indx[0]-1, i] /
-                        table['binned_net'][lp4_indx[0], i]
-                    )
-                    table['scaled_net'][lp4_indx, i] = (
-                        table['scaled_net'][lp4_indx, i] *
-                        table['scale_factor'][lp4_indx, i]
-                    )
-                    # calculate error
-                    table['scaled_stdev'][lp4_indx, i] = calc_error(
-                        i, table, lp3_indx1, lp4_indx
-                    )
-                    print(f"+++ Scaling LP4 to LP3 using data from datasets: {table['infiles'][lp4_indx[0]-1]} {table['infiles'][lp4_indx[0]]}")
-
-                    # Scale LP3 after LP4 -> LP3
-                    if len(lp3_indx2) > 0:
-                        table['scale_factor'][lp3_indx2, i] = (
-                            table['binned_net'][lp4_indx[0], i] / 
-                            table['binned_net'][lp4_indx[0]-1, i])
+                    for size in size:
+                        for i, _ in enumerate(lp3_2[f'{size}_binned_wl'].iloc[0]):
+                            scale_factor = (lp4[f'{size}_binned_net'].iloc[0][i]/
+                                            lp3[f'{size}_binned_net'].iloc[a][i])
                         
-                        table['scaled_net'][lp3_indx2, i] = (
-                            table['scaled_net'][lp3_indx2, i] * 
-                            table['scale_factor'][lp3_indx2, i])
-
-                        # calculate error
-                        table['scaled_stdev'][lp3_indx2, i] = calc_error(
-                            i, table, lp4_indx, lp3_indx2
-                        )
-                        print ('+++ Scaling LP3 to LP4 using data from datasets: ', table['infiles'][lp4_indx[0]],table['infiles'][lp4_indx[0]-1])
-                elif cenwave == 800:
-                    table['scale_factor'][lp3_indx2, i] = (table['binned_net'][lp3_indx2[0]+1, i] / table['binned_net'][lp3_indx2[0], i])
-                    table['scaled_net'][lp3_indx2, i] = table['scaled_net'][lp3_indx2, i] * table['scale_factor'][lp3_indx2, i]
-                    # calculate error
-                    table['scaled_stdev'][lp3_indx2, i] = calc_error(
-                        i, table, lp4_indx, lp3_indx2
-                    )
-
-                    print ('+++ Scaling LP3 to LP4 using data from datasets: ', table['infiles'][lp3_indx2[0]+1], table['infiles'][lp3_indx2[0]])
-
-
-
-
-        if (3 in table['life_adj']) & (2 in table['life_adj']):
-
-            lp3_indx_wd308 = np.where((table['life_adj'] >= 3) &
-                                    (table['targname'] == 'WD0308-565'))
-            lp3_indx_gd71 = np.where((table['life_adj'] >= 3) &
-                                    (table['targname'] == 'GD71'))
-            
-            lp2_indx_wd308 = np.where((table['life_adj'] == 2) &
-                                    (table['targname'] == 'WD0308-565'))
-            lp2_indx_gd71 = np.where((table['life_adj'] == 2) &
-                                    (table['targname'] == 'GD71'))
-            
-            if (cenwave > 1500) & (segment == 'FUVA'):
-                lp2_indx = lp2_indx_gd71
-                lp3_indx  = lp3_indx_gd71
-            else: 
-                lp2_indx = lp2_indx_wd308
-                lp3_indx  = lp3_indx_wd308
-            
-            lp2_indx = lp2_indx[0]
-            lp3_indx  = lp3_indx[0]
-
-            for i, _ in enumerate(table['binned_wl']):
-                # Scale LP3
-                table['scale_factor'][lp3_indx, i] = (
-                    table['binned_net'][lp2_indx[-1], i] /
-                    table['binned_net'][lp3_indx[0], i]
-                )
-                table['scaled_net'][lp3_indx, i] = (
-                    table['scaled_net'][lp3_indx, i] *
-                    table['scale_factor'][lp3_indx, i]
-                )
+                            for j, _ in enumerate(lp3_2[f'{size}_binned_net']):
+                                lp3_2[f'{size}_binned_net'].iloc[j][i] = (
+                                    lp3_2[f'{size}_binned_net'].iloc[j][i]*
+                                    scale_factor)
+                                
+                    table.loc[(table['life_adj'] == 3) & (table['date-obs'] > 2019.0)] = lp3_2
+                    print(f"+++ Scaling LP3 to LP4 using data from datasets: {lp4['file_path'].iloc[0]} {lp3['file_path'].iloc[a]}")
                 
-                # calculate error
-                table['scaled_stdev'][lp3_indx, i] = calc_error(
-                    i, table, lp2_indx, lp3_indx
-                )
-            print(f"+++ Scaling LP3 to LP2 using data from datasets: {table['infiles'][lp2_indx[-1]]} {table['infiles'][lp3_indx[0]]}")
+            elif cenwave == 800:
+
+                a = find_nearest(np.array(lp4['date-obs']).flatten(),
+                                 np.array(lp3_2['date-obs']).flatten()[0])
+                size = ['small', 'large']
+
+                for size in size:
+                    for i, _ in enumerate(lp3_2[f'{size}_binned_wl'].iloc[0]):
+                        scale_factor = (lp4[f'{size}_binned_net'].iloc[a][i]/
+                                        lp3_2[f'{size}_binned_net'].iloc[0][i])
+                    
+                        for j, _ in enumerate(lp3_2[f'{size}_binned_net']):
+                            lp3_2[f'{size}_binned_net'].iloc[j][i] = (
+                                lp3_2[f'{size}_binned_net'].iloc[j][i]*
+                                scale_factor)
+                
+                table.loc[table['life_adj'] == 3] = lp3_2
+                print(f"+++ Scaling LP3 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp3_2['file_path'].iloc[0]}")
         
 
-        if (2 in table['life_adj']) & (1 in table['life_adj']):
-            lp2_indx_wd308 = np.where(
-                (table['life_adj'] >= 2) &
-                (table['targname'] == 'WD0308-565'))
-            lp2_indx_gd71 = np.where(
-                (table['life_adj'] >= 2) &
-                (table['targname'] == 'GD71'))
-            
 
-            lp1_indx_wd1057 = np.where(
-                (table['life_adj'] == 1) &
-                (table['targname'] == 'WD1057+719'))
-            lp1_indx_wd0947 = np.where(
-                (table['life_adj'] == 1) &
-                (table['targname'] == 'WD0947+857'))
+        if (3 in np.array(table['life_adj']).flatten()) & (2 in np.array(table['life_adj']).flatten()):
+
+            lp3_wd308 = table[(table['life_adj'] >= 3) &
+                                    (table['targname'] == 'WD0308-565')]
+            lp3_gd71 = table[(table['life_adj'] >= 3) &
+                                    (table['targname'] == 'GD71')]
+            
+            lp2_wd308 = table[(table['life_adj'] == 2) &
+                                    (table['targname'] == 'WD0308-565')]
+            lp2_gd71 = table[(table['life_adj'] == 2) &
+                                    (table['targname'] == 'GD71')]
+            
+            if (cenwave > 1500) & (segment == 'FUVA'):
+                lp2 = lp2_gd71
+                lp3  = lp3_gd71
+            else: 
+                lp2 = lp2_wd308
+                lp3  = lp3_wd308
+
+            a = find_nearest(np.array(lp2['date-obs']).flatten(), 
+                            np.array(lp3['date-obs']).flatten()[0])
+            
+            lp3 = scale(lp3, lp2, a)
+            table.loc[table['life_adj'] == 3] = lp3
+
+            print(f"+++ Scaling LP3 to LP2 using data from datasets: {lp2['file_path'].iloc[a]} {lp3['file_path'].iloc[0]}")
+        
+
+        if (2 in np.array(table['life_adj']).flatten()) & (1 in np.array(table['life_adj']).flatten()):
+            lp2_wd308 = table[(table['life_adj'] >= 2) &
+                                   (table['targname'] == 'WD0308-565')]
+            lp2_gd71 = table[(table['life_adj'] >= 2) &
+                                  (table['targname'] == 'GD71')]
+            
+            lp1_wd1057 = table[(table['life_adj'] == 1) &
+                                    (table['targname'] == 'WD1057+719')]
+            lp1_wd0947 = table[(table['life_adj'] == 1) &
+                                    (table['targname'] == 'WD0947+857')]
             
             
             if (cenwave > 1500) & (segment == 'FUVA'):
-                lp1_indx = lp1_indx_wd1057
-                lp2_indx = lp2_indx_gd71
+                lp1 = lp1_wd1057
+                lp2 = lp2_gd71
             elif (cenwave > 1500) & (segment == 'FUVB'):
-                lp1_indx = lp1_indx_wd1057
-                lp2_indx = lp2_indx_wd308
+                lp1 = lp1_wd1057
+                lp2 = lp2_wd308
             else: 
-                lp1_indx = lp1_indx_wd0947
-                lp2_indx  = lp2_indx_wd308
+                lp1 = lp1_wd0947
+                lp2  = lp2_wd308
+
+            a = find_nearest(np.array(lp1['date-obs']).flatten(), 
+                            np.array(lp2['date-obs']).flatten()[0])
             
-            lp1_indx = lp1_indx[0]
-            lp2_indx = lp2_indx[0]
+            lp2 = scale(lp2, lp1, a)
+            table.loc[table['life_adj'] == 2] = lp2
 
-            for i, _ in enumerate(table['binned_wl']):
-                # Scale LP2
-                table['scale_factor'][lp2_indx, i] = (
-                    table['binned_net'][lp1_indx[-1], i] /
-                    table['binned_net'][lp2_indx[0], i]
-                )
-                table['scaled_net'][lp2_indx, i] = (
-                    table['scaled_net'][lp2_indx, i] *
-                    table['scale_factor'][lp2_indx, i]
-                )
-                
-                # calculate error
-                table['scaled_stdev'][lp2_indx, i] = calc_error(
-                    i, table, lp1_indx, lp2_indx
-                )
-            print(f"+++ Scaling LP2 to LP1 using data from datasets: {table['infiles'][lp1_indx[-1]]} {table['infiles'][lp2_indx[0]]}")
-
+            print(f"+++ Scaling LP2 to LP1 using data from datasets: {lp1['file_path'].iloc[a]} {lp2['file_path'].iloc[0]}")
         return (table)
 
 # --------------------------------------------------------------------------------#
