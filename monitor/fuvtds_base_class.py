@@ -9,6 +9,7 @@ from itertools import repeat
 from scipy.stats import binned_statistic
 from tqdm.contrib.concurrent import process_map
 import mpfit
+from scipy.interpolate import interp1d
 
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
@@ -24,15 +25,11 @@ monitor that will conduct all the plotting.
 Please be aware, this will be a monster.
 
 Notes to do in the future:
-    - Combine get hdu info with bin data
     - Exchange mpfit.mpfit with scipy.curve_fit
-    - Do multithreading to run each cenwave/segment combo in parallel, for analysis
     - Put outputs into a log file instead out outright outputting
     - Fix the bug that affects the LP3 -> LP4 -> LP3, present in 1280 FUVB
-    - Fix errors bug
-    - Add in a function for 'broken lines' that can be called in for the plotting class
     - add highlighted areas in residual plots in plotting class for 2% and 5%
-    - add in current tdstab as a class input in plotting function
+    - csv file of Bad exposures instead of a dictionary
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -43,50 +40,70 @@ class FUVTDSBase:
     conduct a FUVTDS monitor analysis.
 
     Attributes:
-        cenwaves (list): The central wavelength modes used in routine FUV TDS monitoring.
-        breakpoints (array-like): All the TDS breakpoints by fractional year.
-        reftime (float.64): The decimal year of the reftime.
-        small / large (dictionary): A nestled dictionary made from the small wavelength-bins,
-                            organized by cenwave and then segment. ie small[1533][FUVA]
-            binned_net (array-like): binned NET array for each x1d file, per segment.
-            binned_wl (array-like): binned WAVELENGTH array for each x1d file, per segment.
-            stdev (array-like): binned standard deviation of the NET array binning.
-            grating (array-like): OPT_ELEM keyword for each x1d file, per segment.
-            lp (array-like): LIFE_ADJ keyword for each x1d file, per segment.
-            target (array-like): TARGNAME keyword for each x1d file, per segment.
-            rootname (array-like): Rootnames of all input x1d files used for that cenwave and segment.
-            date (array-like): Decimal year date of the time the exposure was taken for that cenwave and segment.
-            infiles (array-like): x1d files for that cenwave and segment, organized chronologically.
-            scaled_net (array-like): binned NET array for each x1d file of each cenwave and segment, scaled between
-                                    all LPs involved and scaled to 1.
-            scaled_stdev (array-like): binned standard deviation of the NEET array binning for each x1d file of 
-                                    each cenwave and segment, scaled between all LPs involved and scaled to 1.
-            scale_factor (array-like): the scale factor used to scale binned NET array of each x1d file of each
-                                    cenwave and segment across all LPs involved.
     """
 
     def __init__(self, PIDs, reftime = 54952.0, inventory='inventory_test.csv'):
         """
         Args:
-            PIDs: The dat file that will store all the PIDs part of the
-                FUVTDS Monitor programs.
-            reftime: The mjd of the reftime.
-            breakpoints: All the TDS breakpoints by fractional year.
-            inventory: The csv file containing the x1d files and other information used in the FUV TDS Monitor
         """
         self.breakpoints = np.array([2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0, 2023.2])
         self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94])
         self.HV_FUVB = np.array([2011.18,2013.47,2012.56,2014.55,2015.107,2016.05,2017.75,2020.75,2022.47, 2023.94])
         self.LPs = np.array([2012.56, 2015.107, 2017.75, 2021.76, 2022.75])
+        self.cenwaves = np.array([1533, 1577, 1623, 1291, 1327, 1105, 1280, 800, 1222, 1055, 1096])
+        self.segments = ['FUVA', 'FUVB']
         self.reftime = Time(reftime, format="mjd").decimalyear
 
         tables = self.parse_infiles(PIDs, inventory)
-        tables = self.scalings(tables)
+        self.tables = self.scalings(tables)
 
-        # scale all to one
-        #self.small = self.scale_to_1_all_data(small)
-        #self.large = self.scale_to_1_all_data(large)
+# --------------------------------------------------------------------------------#
+    def tds_backout(self, response, wavelength, mjd, opt_elem, aperture, segment, cenwave, tdstab=None):
+        """
+        """
+        #-------#
+        # get correction array
+        #-------#
 
+        def calculate_drop(time, ref_time, slope, intercept):
+            """
+            Equation comes from the current ICD-47
+            """
+
+            frac_drop = ( (( time - ref_time ) * slope) / (365.25*100) ) + intercept
+            return frac_drop
+        
+        tds_data = fits.getdata(tdstab,ext=1 )
+        REF_TIME = fits.getval(tdstab,'REF_TIME',ext=1) #Should be 52922.0 (2003.77)
+        mode_index = np.where((tds_data['OPT_ELEM'] == opt_elem) &
+                            (tds_data['APERTURE'] == aperture) &
+                            (tds_data['SEGMENT'] == segment) &
+                            (tds_data['CENWAVE'] == cenwave))[0]
+
+        mode_line = tds_data[ mode_index ]
+
+        tds_nt = mode_line['NT'][0]
+        tds_wavelength = mode_line['WAVELENGTH'][0]
+        smaller_index = np.where( mode_line['TIME'][0][:tds_nt] < mjd )[0]
+        time_index = smaller_index.max()
+
+        tds_slope = mode_line['SLOPE'][0]
+        tds_intercept = mode_line['INTERCEPT'][0]
+
+        correction_array = np.zeros( len(tds_wavelength) )
+        
+        for i, _ in enumerate( tds_wavelength ):
+            correction = calculate_drop( mjd, REF_TIME, tds_slope[time_index,i], tds_intercept[time_index,i] )
+            correction_array[i] = correction
+
+        #-------
+        # interpolate onto input arrays
+        #------
+
+        interp_function = interp1d( tds_wavelength, correction_array, 1 )
+        interp_correction = interp_function( wavelength )
+
+        return response / interp_correction
 # --------------------------------------------------------------------------------#
     def broken_lines(self, x, *p):
         """ Fitting function for a segmented line with n_bp breakpoints."""
@@ -186,7 +203,8 @@ class FUVTDSBase:
         return(model_y)
 # --------------------------------------------------------------------------------#
     def scale_to_1(self, cenwave, segment, table):
-        """"""
+        """
+        """
         breakpoints = self.breakpoints - self.reftime
 
         table = table[(table['cenwave'] == cenwave) & (table['segment'] == segment)]
@@ -195,49 +213,86 @@ class FUVTDSBase:
             return
         
         sizes = ['small', 'large']
-        size = 'small'
+        scaled_to_1_table = {}
 
         # date of all exposures of cenwave and segment 
         x = np.array(table['date-obs']).flatten() - self.reftime
 
-        for i, _ in enumerate(table[f'{size}_binned_wl'].iloc[0]):
-            
-            # Scaled net count of given cenwave and segment
-            print(table[f'{size}_binned_net'].iloc[:,i])
-            y = np.array(table[f'{size}_binned_net']).flatten()[:,i].ravel()
-            error = np.array(table[f'{size}_stdev']).flatten()[:,i].ravel()
+        for size in sizes:
+    
+            binned_net = np.array([binned_net for binned_net in table[f'{size}_scaled_net']])
+            stdev = np.array([stdev for stdev in table[f'{size}_scaled_stdev']])
 
-            # Remove NaN values from y-array and from the corresponding xarray and error array
-            x = x[~np.isnan(y)]
-            error = error[~np.isnan(error)]
-            y = y[~np.isnan(y)]
+            best_fit      = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
+            best_fit_err  = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
 
-            # initial parameter guess
-            initial_params = list(np.polyfit(x, y, 1))
+            for i, _ in enumerate(table[f'{size}_binned_wl'].iloc[0]):
+                
+                # Scaled net count of given cenwave and segment
+                y = binned_net[:,i]
+                error = stdev[:,i]
 
-            # polyfit returns the highest order coefficient first
-            # begin with intercept then slope [intercept, slope]
-            initial_params.reverse()
+                # Remove NaN values from y-array and from the corresponding xarray and error array
+                x = x[~np.isnan(y)]
+                error = error[~np.isnan(error)]
+                y = y[~np.isnan(y)]
 
-            for bp in breakpoints:
-                # Append breakpoint minus reftime to end of initial parameters list
-                initial_params.append(bp)
+                # initial parameter guess
+                initial_params = list(np.polyfit(x, y, 1))
 
-                # Append slope of that breakpoint (minus reftime) to end of initial parameters list
-                initial_params.append(initial_params[1])
-            
-            # Check to see if cenwave is a bluemode
-            blue_flag = False
-            if cenwave in [1222, 1096, 1055]:
-                blue_flag = True
-            
-            # Create the parameter info list which mpfit.mpfit uses
-            parinfo = self.create_parainfo_list(initial_params, x, blue_flag)
+                # polyfit returns the highest order coefficient first
+                # begin with intercept then slope [intercept, slope]
+                initial_params.reverse()
 
-            # conduct the fit here
-            pars, _, perrs = self.mpfit_the_data(self.mpfitting_function, x, y, err = error, p0=initial_params, parinfo=parinfo)
+                for bp in breakpoints:
+                    # Append breakpoint minus reftime to end of initial parameters list
+                    initial_params.append(bp)
 
+                    # Append slope of that breakpoint (minus reftime) to end of initial parameters list
+                    initial_params.append(initial_params[1])
+                
+                # Check to see if cenwave is a bluemode
+                blue_flag = False
+                if cenwave in [1222, 1096, 1055]:
+                    blue_flag = True
+                
+                # Create the parameter info list which mpfit.mpfit uses
+                parinfo = self.create_parainfo_list(initial_params, x, blue_flag)
 
+                # conduct the fit here
+                fit = self.mpfit_the_data(self.mpfitting_function, x, y, err = error, p0=initial_params, parinfo=parinfo)
+
+                pars = fit[0]
+                perrs = fit[2]
+
+                best_fit[i,:] = pars
+                best_fit_err[i,:] = perrs
+
+                if pars is None:
+                    print('No fit was done.')
+                else:
+                    y_intercept = best_fit[i,0]
+                    y_inter_stdev = best_fit_err[i,0]
+
+                    # Scale to 1
+                    stdev[:,i] = stdev[:,i]/y_intercept
+                    binned_net[:,i] = binned_net[:,i]/y_intercept
+                    best_fit[i, 1::2] = best_fit[i, 1::2]/y_intercept
+
+                    best_fit_err[i, 1::2] = np.sqrt(
+                        (best_fit_err[i, 1::2] / y_intercept)**2 +
+                        (best_fit[i, 1::2] / (y_intercept**2)*y_inter_stdev)**2
+                    )
+
+                    best_fit[i, 0] = 1.0
+
+            # Set the appropriate values to dataframe
+            scaled_to_1_table[f'{size}_scaled_net'] = binned_net
+            scaled_to_1_table[f'{size}_scaled_stdev'] = stdev
+            scaled_to_1_table[f'{size}_best_fit'] = best_fit
+            scaled_to_1_table[f'{size}_best_fit_err'] = best_fit_err
+        
+        return(scaled_to_1_table)
 
     def create_parainfo_list(self, p0, x, blue_flag):
         """
@@ -490,20 +545,6 @@ class FUVTDSBase:
         new_table = pd.concat(tables, ignore_index=True)
         new_table = new_table.sort_values(by=['date-obs'], ignore_index=True)
 
-
-        # scale to one
-        tables = []
-        for segment in set(table['segment']):
-            with mp.Pool(16) as pool:
-                tab = pool.starmap(self.scale_to_1, zip(set(table['cenwave']), repeat(segment), repeat(table)))
-            pool.terminate
-
-            tab = pd.concat(tab, ignore_index=True)
-            tables.append(tab)
-            
-        new_table = pd.concat(tables, ignore_index=True)
-        new_table = new_table.sort_values(by=['date-obs'], ignore_index=True)
-
         return(new_table)
         
 # --------------------------------------------------------------------------------#
@@ -521,18 +562,37 @@ class FUVTDSBase:
 
             for size in size:
                 for i, _ in enumerate(scaled[f'{size}_binned_wl'].iloc[0]):
+
+                    scaled_error = scaled[f'{size}_stdev'].iloc[0][i]
+                    scaled_data  = scaled[f'{size}_binned_net'].iloc[0][i] 
+
+                    scaled_to_error = scaled_to[f'{size}_stdev'].iloc[a][i]
+                    scaled_to_data  = scaled_to[f'{size}_binned_net'].iloc[a][i]
                     
-                    scale_factor = (scaled_to[f'{size}_binned_net'].iloc[a][i]/
-                                    scaled[f'{size}_binned_net'].iloc[0][i])
+                    scale_factor = (scaled_to_data/
+                                    scaled_data)
+                    
+                    scale_factor_stdev = np.sqrt(
+                        (scaled_to_error/scaled_data)**2 +
+                        (scaled_to_data/(scaled_data**2)*scaled_error)**2
+                    )
                     
                     for j, _ in enumerate(scaled[f'{size}_binned_net']):
-                        scaled[f'{size}_binned_net'].iloc[j][i] = (
+
+                        scaled[f'{size}_scaled_stdev'].iloc[j][i] = np.sqrt(
+                            scale_factor**2 *
+                            scaled[f'{size}_stdev'].iloc[j][i]**2 +
+                            scaled[f'{size}_binned_net'].iloc[j][i]**2 *
+                            scale_factor_stdev**2
+                        )
+
+                        scaled[f'{size}_scaled_net'].iloc[j][i] = (
                             scaled[f'{size}_binned_net'].iloc[j][i]*
                             scale_factor
                         )
                 
             return(scaled)
-        
+
         table = table[(table['cenwave'] == cenwave) & (table['segment'] == segment)]
 
 
@@ -631,14 +691,15 @@ class FUVTDSBase:
                 lp3_2 = lp3_wd308_2
             
             if len(lp3_2) != 0:
-                lp4 = pd.concat([lp4, lp3_2], ignore_index=True) #lp4_indx needs to contain the post 2021 lp3_indx
+                lp4 = pd.concat([lp4, lp3_2]) #lp4_indx needs to contain the post 2021 lp3_indx
             
             if cenwave != 800:
                 a = find_nearest(np.array(lp3['date-obs']).flatten(), 
                             np.array(lp4['date-obs']).flatten()[0])
             
                 lp4 = scale(lp4, lp3, a)
-                table.loc[table['life_adj'] == 4] = lp4
+
+                table.loc[(table['life_adj'] >= 4) | ((table['life_adj'] == 3) & (table['date-obs'] > 2019.0))] = lp4
 
                 print(f"+++ Scaling LP4 to LP3 using data from datasets: {lp3['file_path'].iloc[a]} {lp4['file_path'].iloc[0]}")
             
@@ -647,14 +708,33 @@ class FUVTDSBase:
 
                     for size in size:
                         for i, _ in enumerate(lp3_2[f'{size}_binned_wl'].iloc[0]):
-                            scale_factor = (lp4[f'{size}_binned_net'].iloc[0][i]/
-                                            lp3[f'{size}_binned_net'].iloc[a][i])
-                        
+
+                            scaled_error = lp3[f'{size}_stdev'].iloc[a][i]
+                            scaled_data  = lp3[f'{size}_binned_net'].iloc[a][i]
+
+                            scaled_to_error = lp4[f'{size}_stdev'].iloc[0][i]
+                            scaled_to_data  = lp4[f'{size}_binned_net'].iloc[0][i]
+                            
+                            scale_factor = (scaled_to_data/
+                                            scaled_data)
+                            scale_factor_stdev = np.sqrt(
+                                (scaled_to_error/scaled_data)**2 +
+                                (scaled_to_data/(scaled_data**2)*scaled_error)**2
+                            )
+                            
                             for j, _ in enumerate(lp3_2[f'{size}_binned_net']):
-                                lp3_2[f'{size}_binned_net'].iloc[j][i] = (
+
+                                lp3_2[f'{size}_scaled_stdev'].iloc[j][i] = np.sqrt(
+                                    scale_factor**2 *
+                                    lp3_2[f'{size}_stdev'].iloc[j][i]**2 +
+                                    lp3_2[f'{size}_binned_net'].iloc[j][i]**2 *
+                                    scale_factor_stdev**2
+                                )
+        
+                                lp3_2[f'{size}_scaled_net'].iloc[j][i] = (
                                     lp3_2[f'{size}_binned_net'].iloc[j][i]*
                                     scale_factor)
-                                
+
                     table.loc[(table['life_adj'] == 3) & (table['date-obs'] > 2019.0)] = lp3_2
                     print(f"+++ Scaling LP3 to LP4 using data from datasets: {lp4['file_path'].iloc[0]} {lp3['file_path'].iloc[a]}")
                 
@@ -666,15 +746,33 @@ class FUVTDSBase:
 
                 for size in size:
                     for i, _ in enumerate(lp3_2[f'{size}_binned_wl'].iloc[0]):
-                        scale_factor = (lp4[f'{size}_binned_net'].iloc[a][i]/
-                                        lp3_2[f'{size}_binned_net'].iloc[0][i])
+                        scaled_error = lp3_2[f'{size}_stdev'].iloc[0][i]
+                        scaled_data  = lp3_2[f'{size}_binned_net'].iloc[0][i] 
+
+                        scaled_to_error = lp4[f'{size}_stdev'].iloc[a][i]
+                        scaled_to_data  = lp4[f'{size}_binned_net'].iloc[a][i]
+                        
+                        scale_factor = (scaled_to_data/
+                                        scaled_data)
+                        scale_factor_stdev = np.sqrt(
+                            (scaled_to_error/scaled_data)**2 +
+                            (scaled_to_data/(scaled_data**2)*scaled_error)**2
+                        )
                     
                         for j, _ in enumerate(lp3_2[f'{size}_binned_net']):
-                            lp3_2[f'{size}_binned_net'].iloc[j][i] = (
+                            lp3_2[f'{size}_scaled_stdev'].iloc[j][i] = np.sqrt(
+                                scale_factor**2 *
+                                lp3_2[f'{size}_stdev'].iloc[j][i]**2 +
+                                lp3_2[f'{size}_binned_net'].iloc[j][i]**2 *
+                                scale_factor_stdev**2
+                                )
+
+                            lp3_2[f'{size}_scaled_net'].iloc[j][i] = (
                                 lp3_2[f'{size}_binned_net'].iloc[j][i]*
                                 scale_factor)
-                
+
                 table.loc[table['life_adj'] == 3] = lp3_2
+
                 print(f"+++ Scaling LP3 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp3_2['file_path'].iloc[0]}")
         
 
@@ -702,7 +800,7 @@ class FUVTDSBase:
                             np.array(lp3['date-obs']).flatten()[0])
             
             lp3 = scale(lp3, lp2, a)
-            table.loc[table['life_adj'] == 3] = lp3
+            table.loc[table['life_adj'] >= 3] = lp3
 
             print(f"+++ Scaling LP3 to LP2 using data from datasets: {lp2['file_path'].iloc[a]} {lp3['file_path'].iloc[0]}")
         
@@ -733,7 +831,8 @@ class FUVTDSBase:
                             np.array(lp2['date-obs']).flatten()[0])
             
             lp2 = scale(lp2, lp1, a)
-            table.loc[table['life_adj'] == 2] = lp2
+
+            table.loc[table['life_adj'] >= 2] = lp2
 
             print(f"+++ Scaling LP2 to LP1 using data from datasets: {lp1['file_path'].iloc[a]} {lp2['file_path'].iloc[0]}")
         return (table)
@@ -906,8 +1005,8 @@ class FUVTDSBase:
                     wl    = data['wavelength'][i][dqwgt]
                     net   = data['net'][i][dqwgt]
 
-                    small_x_index = np.where((wl >= small_min_wl) & (wl <= small_max_wl))
-                    large_x_index = np.where((wl >= large_min_wl) & (wl <= large_max_wl))
+                    small_x_index = np.where((wl >= small_min_wl) & (wl < small_max_wl))
+                    large_x_index = np.where((wl >= large_min_wl) & (wl < large_max_wl))
 
                     # determine the mean net count rate for each bin
                     small_mean_net, small_edges, _ = binned_statistic(
@@ -925,13 +1024,14 @@ class FUVTDSBase:
                     small_stdev = binned_statistic(
                         wl[small_x_index],
                         net[small_x_index],
-                        np.std, bins=small_bins
-                    )[0]
+                        "std", bins=small_bins
+                    )[0] / np.sqrt(len(net[small_x_index]))
+
                     large_stdev = binned_statistic(
                         wl[large_x_index],
                         net[large_x_index],
-                        np.std, bins=large_bins
-                    )[0]
+                        "std", bins=large_bins
+                    )[0] / np.sqrt(len(net[large_x_index]))
 
                     x1d_table = pd.DataFrame(
                         {
@@ -948,11 +1048,15 @@ class FUVTDSBase:
                             'exptime': [hdr1['exptime']],
                             'file_path': [file],
                             'small_binned_net': [small_mean_net],
+                            'small_scaled_net': [small_mean_net],
                             'small_stdev': [small_stdev],
+                            'small_scaled_stdev': [small_stdev],
                             'small_binned_wl': [small_edges[:-1]+np.diff(small_edges)/2],
                             'small_wl_edges': [small_edges],
                             'large_binned_net': [large_mean_net],
+                            'large_scaled_net': [large_mean_net],
                             'large_stdev': [large_stdev],
+                            'large_scaled_stdev': [large_stdev],
                             'large_binned_wl': [large_edges[:-1]+np.diff(large_edges)/2],
                             'large_wl_edges': [large_edges]
                             }
@@ -1008,16 +1112,19 @@ class FUVTDSBase:
        if len(tables) != 0:
            tables = tables.sort_values(by=['date-obs-fits'], ignore_index=True)
            
-           csv_file_save = tables.drop(columns=['small_binned_net', 
+           csv_file_save = tables.drop(columns=['small_binned_net',
+                                                'small_scaled_net',
                                                 'small_binned_wl', 
                                                 'small_wl_edges',
                                                 'large_binned_net', 
+                                                'large_scaled_net',
                                                 'large_binned_wl', 
                                                 'large_wl_edges',
                                                 'small_stdev',
+                                                'small_scaled_stdev',
                                                 'large_stdev',
-                                                'date-obs'
-                                                ])
+                                                'large_scaled_stdev',
+                                                'date-obs'])
            csv_file_save = csv_file_save.rename(columns={'date-obs-fits': 'date-obs'})
            tables = tables.drop(columns=['date-obs-fits'])
            if os.path.exists(csv_file):
