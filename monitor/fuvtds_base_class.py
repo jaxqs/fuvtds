@@ -14,7 +14,8 @@ from scipy.interpolate import interp1d
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
-from urllib import request
+import requests
+from io import StringIO
 from astropy.convolution import Box1DKernel, convolve
 
 """
@@ -40,6 +41,9 @@ class FUVTDSBase:
     conduct a FUVTDS monitor analysis.
 
     Attributes:
+        PIDs: .dat file of TDS PIDs
+        reftime: the 'zero' point in time, 2003
+        inventory: csv file that will save all data used in fuv tds analysis
     """
 
     def __init__(self, PIDs, reftime = 54952.0, inventory='inventory_test.csv'):
@@ -56,6 +60,89 @@ class FUVTDSBase:
 
         tables = self.parse_infiles(PIDs, inventory)
         self.tables = self.scalings(tables)
+
+# --------------------------------------------------------------------------------#
+# --------------------------------------------------------------------------------#
+# PLOT TOOLS
+# --------------------------------------------------------------------------------#
+    def add_lines(self, lines, style, name, second=False):
+        """
+        """
+
+        # this list will host information about each line
+        vlines = []
+        if second == False:
+            for i, line in enumerate(lines):
+                if i == 0:
+                    # append plot information of vertical line
+                    vlines.append({
+                        'x': [line, line],
+                        'y': [-0.5, 1.3],
+                        'mode': 'lines',
+                        'line': style,
+                        'name': name,
+                        'legendgroup': name,
+                        'showlegend': True
+                    })
+                else:
+                    vlines.append({
+                        'x': [line, line],
+                        'y': [-0.5, 1.3],
+                        'mode': 'lines',
+                        'line': style,
+                        'name': name,
+                        'legendgroup': name,
+                        'showlegend': False
+                    })
+        else:
+            for i, line in enumerate(lines):
+
+                vlines.append({
+                        'x': [line, line],
+                        'y': [-0.5, 1.3],
+                        'mode': 'lines',
+                        'line': style,
+                        'name': name,
+                        'legendgroup': name,
+                        'showlegend': False
+                    })
+        
+        return(vlines)
+
+# --------------------------------------------------------------------------------#
+    def get_solar_data(self, spaceweather_url = 'https://www.spaceweather.gc.ca/solar_flux_data/daily_flux_values/fluxtable.txt'):
+        """
+        Get the solar flux data from this spaceweather website, updates each day.
+        """
+
+        # retrieve the flux table from the website where solar flux is hosted
+        response = requests.get(spaceweather_url)
+        if response.status_code == 200:
+            with open('fluxtable.txt', 'wb') as file:
+                file.write(response.content)
+            with open('fluxtable.txt', 'r') as file:
+                lines = file.readlines()
+            
+            # grab the data from file
+            cleaned_data = ''.join([line for line in lines if '---' not in line])
+
+            # turn into dataframe
+            df = pd.read_csv(StringIO(cleaned_data), delim_whitespace=True, comment='#')
+
+            # use fluxjulian to index
+            df.index = pd.DatetimeIndex(df['fluxjulian'])
+            df['date'] = Time(df['fluxjulian'], format='jd').decimalyear
+
+            # drop the columns we don't need and rename what we do need (date and f10.7)
+            df = df.drop(columns=['fluxdate', 'fluxtime', 'fluxcarrington', 'fluxadjflux', 'fluxursi'])
+            df.rename(columns= {'fluxobsflux':'f10.7'}, inplace=True)
+            df = df.reindex(columns=['date', 'f10.7'])
+
+            # only interested in data post 2009.5, after COS launch
+            df = df[df['date'] >= 2009.5]
+
+            # return solar flux df
+            return(df)
 
 # --------------------------------------------------------------------------------#
     def tds_backout(self, response, wavelength, mjd, opt_elem, aperture, segment, cenwave, tdstab=None):
@@ -201,6 +288,11 @@ class FUVTDSBase:
             print('is not even, fit may be rubbish.')
 
         return(model_y)
+    
+# --------------------------------------------------------------------------------#
+# --------------------------------------------------------------------------------#
+# MATH TOOLS
+# --------------------------------------------------------------------------------#
 # --------------------------------------------------------------------------------#
     def scale_to_1(self, cenwave, segment, table):
         """
@@ -293,6 +385,8 @@ class FUVTDSBase:
             scaled_to_1_table[f'{size}_best_fit_err'] = best_fit_err
         
         return(scaled_to_1_table)
+
+# --------------------------------------------------------------------------------#
 
     def create_parainfo_list(self, p0, x, blue_flag):
         """
@@ -414,7 +508,8 @@ class FUVTDSBase:
                             'mpprint': 1
                         })
         return (parinfo)
-        
+    
+# --------------------------------------------------------------------------------#
     def mpfit_the_data(self, func, x, y, err=None, p0=None, parinfo=None):
         """
         Call the fitting function. Uses mpfit. 
@@ -486,8 +581,8 @@ class FUVTDSBase:
         perr = m.perror
 
         return (popt, pcov, perr)
-        
-        # Fitting function that will be used
+
+# --------------------------------------------------------------------------------#
     def mpfitting_function(self, p, fjac=None, x=None, y=None, err=None):
         """
         Mpfit fitting function.
@@ -1177,72 +1272,7 @@ class FUVTDSMonitor(object):
         self.solar  = self.get_solar_data()
         self.plot_solar_flux()
         self.rel_sens()
-    
-    # add vertical lines
-    # REVAMP THIS THIS DOESNT REALLY WORK AHHH          
-    def _add_lines(self, lines, style, name):
-        
-        # this list will host information about each line
-        vlines = []
-        for i, line in enumerate(lines):
-            if i == 0:
-                # Append plot information of vertical line
-                vlines.append(go.Scatter(
-                x = [line, line],
-                y = [0, 1.4],
-                mode = 'lines',
-                line=style,
-                name=name,
-                legendgroup=name,
-                showlegend=True
-            ))
-            else:
-                # Group together the lines and have only the first visible in legend
-                vlines.append(go.Scatter(
-                    x = [line, line],
-                    y = [0, 1.4],
-                    mode = 'lines',
-                    line=style,
-                    name=name,
-                    legendgroup=name,
-                    showlegend=False
-                ))
-        return (vlines)
-        
-    def get_solar_data(self):
-        """
-        Get the solar flux data from this spaceweather website, updates each day.
-        """
 
-        # website where solar flux is hosted
-        spaceweather_url = 'ftp://ftp.seismo.nrcan.gc.ca/spaceweather/solar_flux/daily_flux_values/fluxtable.txt'
-
-        # retrieve the flux table from the website where solar flux is hosted
-        request.urlretrieve(spaceweather_url, 'fluxtable.txt')
-
-        # read in the flux table and convert to pandas dataframe
-        data = ascii.read('fluxtable.txt')
-        df = data.to_pandas()
-
-        # obtain the julian flux column, reindex data for flux julian, and then create a new date column in decimal year
-        fluxjulian = df['fluxjulian']
-        df.index = pd.DatetimeIndex(fluxjulian)
-        df['date'] = Time(fluxjulian, format='jd').decimalyear
-
-        # remove the unnecessary columns, rename the flux column to f10.7, and reindex to date
-        df = df.drop(columns=['fluxdate', 'fluxtime', 'fluxcarrington', 'fluxadjflux', 'fluxursi'])
-        df.rename(columns = {'fluxobsflux':'f10.7'}, inplace = True)
-        df = df.reindex(columns=['date', 'f10.7'])
-
-        # this removes any previous solar flux txt that is out of date
-        os.system('rm '+os.path.join("solar_flux.txt"))
-
-        # save the most up to date solar flux file to directory
-        outfile = os.path.join("solar_flux.txt")
-        df = df[df['date'] >= 2009.5] # only interested in data post 2009.5, after COS launch
-        df.to_csv(outfile, header=None, index=None, sep=' ', mode='a')
-
-        return(df)
     
     def plot_solar_flux(self):
         """
