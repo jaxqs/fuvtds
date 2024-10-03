@@ -46,7 +46,7 @@ class FUVTDSBase:
         inventory: csv file that will save all data used in fuv tds analysis
     """
 
-    def __init__(self, PIDs, reftime = 54952.0, inventory='inventory_test.csv'):
+    def __init__(self, PIDs, reftime = 54952.0, inventory='inventory.csv'):
         """
         Args:
         """
