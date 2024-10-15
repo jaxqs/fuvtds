@@ -50,7 +50,8 @@ def binned(cenwave, segment, x, y):
 def select_model(target, x):
     targs = {
         'GD71': 'gd71_mod_011.fits',
-        'WD0308-565': 'wd0308_565_mod_006.fits'
+        'WD0308-565': 'wd0308_565_mod_006.fits',
+        'WD1057+719': 'wd1057_719_mod_009.fits',
     }
     model_spec = syn.SourceSpectrum.from_file(os.path.join(
         os.environ['PYSYN_CDBS'], 'calspec', targs[target]))
@@ -180,7 +181,7 @@ def seperate_segs(data, segment, func):
 if __name__ == "__main__":
     # Change these parameters to what is specific to you
     PID = '17326'
-    visit = '8b'
+    visit = '9b'
 
     data = get_new_data(PID, visit)
 
