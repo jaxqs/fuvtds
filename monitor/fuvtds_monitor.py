@@ -90,15 +90,25 @@ def update_graph(selected_grating, selected_cenwave, selected_segment, selected_
     df = pd.read_csv('inventory.csv')
 
     breakpoints = np.array([
-        2019.0, 2020.6, 
-        2022.0, 2023.2])
+        2010.2, 2011.2, 
+        2011.75, 2012.0, 
+        2012.8, 2013.8, 
+        2015.5, 2019.0, 
+        2020.6, 2022.0, 
+        2023.2])
     HV_FUVA = np.array([
-        2017.75,2020.75,
+        2012.23, 2012.56,
+        2014.84, 2015.107,
+        2017.75, 2020.75,
         2021.76, 2023.94])
     HV_FUVB = np.array([
+        2011.18, 2013.47, 
+        2012.56, 2014.55,
+        2015.107, 2016.05,
         2017.75, 2020.75,
         2022.47, 2023.94])
     LPs = np.array([
+        2012.56, 2015.107, 
         2017.75, 2021.76, 
         2022.75])
 
@@ -109,7 +119,7 @@ def update_graph(selected_grating, selected_cenwave, selected_segment, selected_
         (df['opt_elem'] == selected_grating) & 
         (df['cenwave'] == selected_cenwave) & 
         (df['segment'] == selected_segment)]
-
+    
     date = Time([time for time in df['date-obs']], format='fits').decimalyear
 
     curr_net = np.array([ast.literal_eval(str(net).replace(' ', ',')) for net in df['current_binned_net']])
@@ -412,6 +422,80 @@ def set_wavelength_options(selected_grating, selected_cenwave, selected_segment)
         value = binned_wl[i][0]
         return(options, value)
 ## ------- BUTTONS ------- ##
+
+
+
+@callback(
+       Output('residuals', 'figure'),
+       Input('computed-results', 'data'),
+       Input('dates', 'data'),
+       Input('gratings', 'value'),
+       Input('cenwaves', 'value'),
+       Input('segments', 'value'))
+def update_residuals(data, dates, selected_grating, selected_cenwave, selected_segment):
+    """
+    """
+    if data is None:
+        fig = make_subplots(rows=1, cols=1)
+        return fig
+    df = pd.read_json(StringIO(data), orient='split')
+
+    df = df[
+        (df['opt_elem'] == selected_grating) & 
+        (df['cenwave'] == selected_cenwave) & 
+        (df['segment'] == selected_segment)]
+    
+    date = np.array(df['date-obs']).flatten()
+
+    monitor = FUVTDSMonitor(dates)
+
+    scaled_df = monitor.scale_to_1(table=df, size='small') # scale to one
+
+    net  = np.array([net for net in scaled_df['small_scaled_net'].iloc[0]])
+
+    binned_wl = np.array([wl for wl in df['small_binned_wl']])[0]
+    wl_edges  = np.array([wl for wl in df['small_wl_edges']])[0]
+
+    # TDS model
+    tds = np.transpose([1.0/monitor.tds_backout(
+        1.0, binned_wl,
+        Time(mjd, format='decimalyear').mjd,
+        selected_grating, 'ANY',
+        selected_segment, selected_cenwave, TDSTAB
+    ) for mjd in date])
+
+    fig = go.Figure()
+
+    for i, wl in enumerate(binned_wl):
+        """
+        """
+
+        
+        ymodel = tds[i]
+        residual = np.mean((net[:,i] - ymodel) / ymodel)
+        sens_err = go.Scatter(
+            x = np.array([wl]),
+            y = np.array([residual]),
+            mode='markers',
+            name=f"Residuals",
+            customdata= np.stack(
+                (np.array(wl_edges[i]).flatten(),
+                 np.array(wl_edges[i+1]).flatten(),),
+                axis=-1
+            ),
+            hovertemplate=
+            'wl bin: %{customdata[0]} - %{customdata[1]} <br>'
+            "<extra></extra>",
+            line_color='orange',
+            showlegend= False if i != 0 else True
+        )
+
+        fig.add_trace(sens_err)
+
+    fig.update_yaxes(title_text='Residuals')
+    fig.update_xaxes(title_text='Wavelength (Å)')
+    fig.update_layout(title_text=f'{selected_grating}/{selected_cenwave}/{selected_segment} Residuals from Current TDSTAB')
+    return(fig)
 
 if __name__ == '__main__':
     app.run(debug=True)

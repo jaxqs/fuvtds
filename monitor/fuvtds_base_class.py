@@ -60,569 +60,18 @@ class FUVTDSBase:
 
         tables = self.parse_infiles(PIDs, inventory)
         self.tables = self.scalings(tables)
-
-# --------------------------------------------------------------------------------#
-# --------------------------------------------------------------------------------#
-# PLOT TOOLS
-# --------------------------------------------------------------------------------#
-    def add_lines(self, lines, style, name, second=False):
-        """
-        """
-
-        # this list will host information about each line
-        vlines = []
-        if second == False:
-            for i, line in enumerate(lines):
-                if i == 0:
-                    # append plot information of vertical line
-                    vlines.append({
-                        'x': [line, line],
-                        'y': [-0.5, 1.3],
-                        'mode': 'lines',
-                        'line': style,
-                        'name': name,
-                        'legendgroup': name,
-                        'showlegend': True
-                    })
-                else:
-                    vlines.append({
-                        'x': [line, line],
-                        'y': [-0.5, 1.3],
-                        'mode': 'lines',
-                        'line': style,
-                        'name': name,
-                        'legendgroup': name,
-                        'showlegend': False
-                    })
-        else:
-            for i, line in enumerate(lines):
-
-                vlines.append({
-                        'x': [line, line],
-                        'y': [-0.5, 1.3],
-                        'mode': 'lines',
-                        'line': style,
-                        'name': name,
-                        'legendgroup': name,
-                        'showlegend': False
-                    })
-        
-        return(vlines)
-
-# --------------------------------------------------------------------------------#
-    def get_solar_data(self, spaceweather_url = 'https://www.spaceweather.gc.ca/solar_flux_data/daily_flux_values/fluxtable.txt'):
-        """
-        Get the solar flux data from this spaceweather website, updates each day.
-        """
-
-        # retrieve the flux table from the website where solar flux is hosted
-        response = requests.get(spaceweather_url)
-        if response.status_code == 200:
-            with open('fluxtable.txt', 'wb') as file:
-                file.write(response.content)
-            with open('fluxtable.txt', 'r') as file:
-                lines = file.readlines()
-            
-            # grab the data from file
-            cleaned_data = ''.join([line for line in lines if '---' not in line])
-
-            # turn into dataframe
-            df = pd.read_csv(StringIO(cleaned_data), delim_whitespace=True, comment='#')
-
-            # use fluxjulian to index
-            df.index = pd.DatetimeIndex(df['fluxjulian'])
-            df['date'] = Time(df['fluxjulian'], format='jd').decimalyear
-
-            # drop the columns we don't need and rename what we do need (date and f10.7)
-            df = df.drop(columns=['fluxdate', 'fluxtime', 'fluxcarrington', 'fluxadjflux', 'fluxursi'])
-            df.rename(columns= {'fluxobsflux':'f10.7'}, inplace=True)
-            df = df.reindex(columns=['date', 'f10.7'])
-
-            # only interested in data post 2009.5, after COS launch
-            df = df[df['date'] >= 2009.5]
-
-            # return solar flux df
-            return(df)
-
-# --------------------------------------------------------------------------------#
-    def tds_backout(self, response, wavelength, mjd, opt_elem, aperture, segment, cenwave, tdstab=None):
-        """
-        """
-        #-------#
-        # get correction array
-        #-------#
-
-        def calculate_drop(time, ref_time, slope, intercept):
-            """
-            Equation comes from the current ICD-47
-            """
-
-            frac_drop = ( (( time - ref_time ) * slope) / (365.25*100) ) + intercept
-            return frac_drop
-        
-        tds_data = fits.getdata(tdstab,ext=1 )
-        REF_TIME = fits.getval(tdstab,'REF_TIME',ext=1) #Should be 52922.0 (2003.77)
-        mode_index = np.where((tds_data['OPT_ELEM'] == opt_elem) &
-                            (tds_data['APERTURE'] == aperture) &
-                            (tds_data['SEGMENT'] == segment) &
-                            (tds_data['CENWAVE'] == cenwave))[0]
-
-        mode_line = tds_data[ mode_index ]
-
-        tds_nt = mode_line['NT'][0]
-        tds_wavelength = mode_line['WAVELENGTH'][0]
-        smaller_index = np.where( mode_line['TIME'][0][:tds_nt] < mjd )[0]
-        time_index = smaller_index.max()
-
-        tds_slope = mode_line['SLOPE'][0]
-        tds_intercept = mode_line['INTERCEPT'][0]
-
-        correction_array = np.zeros( len(tds_wavelength) )
-        
-        for i, _ in enumerate( tds_wavelength ):
-            correction = calculate_drop( mjd, REF_TIME, tds_slope[time_index,i], tds_intercept[time_index,i] )
-            correction_array[i] = correction
-
-        #-------
-        # interpolate onto input arrays
-        #------
-
-        interp_function = interp1d( tds_wavelength, correction_array, 1 )
-        interp_correction = interp_function( wavelength )
-
-        return response / interp_correction
-# --------------------------------------------------------------------------------#
-    def broken_lines(self, x, *p):
-        """ Fitting function for a segmented line with n_bp breakpoints."""
-        # The actual function that is done.
-        # Uses date - reftime and initial parameters
-        # and returns the yvalues of all the linear fits
-        model_y = np.zeros(len(x))
-
-        # number of breakpoints
-        n_bp = 0
-
-        # number of parameters
-        n_pars = len(p)
-
-        if n_pars == 1:
-            model_y = [p[0] for e in x]
-        
-        elif n_pars == 2:
-            # If there are only two parameters (aka zero breakpoints), then
-            # do a single linear fit for each time value of the exposure
-            # this will be date - reftime
-            y = [p[0] + p[1] * e for e in x]
-        
-        # If there is an even amount of parameters (as there should), do the the fit
-        elif not len(p) % 2:
-
-            # Removees the intercept and the slope (first two elements in p0) and 
-            # counts the number of breakpoints we are working with
-            n_bp = int((len(p) - 2) // 2)
-
-            # x-values == number of breakpoints
-            x_bp = np.zeros(n_bp)
-
-            # y-values == number of breakpoints, scaled net count related
-            y_bp = np.zeros(n_bp)
-
-            # set first breakpoint to first value in x array, time-related
-            x_bp[0] = p[2]
-
-            # Do linear fit with the first handful of parameters where
-            #       p[0]: intercept, initial parameters
-            #       p[1]: slope, initial parameters
-            #       p[2]: first breakpoint, time-related
-            y_bp[0] = p[0] + p[1] * p[2]
-
-            # Loop over the amount of breakpoints, skipping the first breakpoint
-            for j in range(1, n_bp):
-                # set x value to the next breakpoint
-                x_bp[j] = p[2 * (j+1)]
-
-                # Calculate the yvalue of that breakpoint
-                #       y_bp[j - 1]: last y value, intercept
-                #       p[2 * j + 1]: the next slope value of this breakpoint, slope
-                #       x_bp[j] - x_bp[j - 1]: subtract the last breakpoint to the current one to be time-related, time-related x value
-                y_bp[j] = y_bp[j - 1] + p[2 * j + 1] * (x_bp[j] - x_bp[j - 1])
-            
-            # Loop over the number of xvalues, aka number of date values from all exposures
-            for i, _ in enumerate(x):
-
-                # Get first in time line segment
-                if x[i] < x_bp[0]:
-
-                    # Do a linear fit
-                    yy = p[0] + p[1] * x[i]
-                
-                # Get last in time line segment
-                elif x[i] >= x_bp[-1]:
-
-                    # Do a linear fit
-                    #       y_bp[-1]: last yvalue breakpoint related, intercept
-                    #       p[-1]: last slope value, initial parameters
-                    #       (x[i] - p[-2]): last date in time subtracted by last breakpoint in initial parameters
-                    yy = y_bp[-1] + p[-1] * (x[i] - p[-2])
-                
-                # Get the in between line segments
-                elif n_bp > 1:
-
-                    # Loop over the breakpoints
-                    for j in range(n_bp - 1):
-
-                        # Get the date values in between the breakpoints
-                        if (x[i] >= x_bp[j]) and (x[i] < x_bp[j+1]):
-
-                            # Do a linear fit
-                            #       y_bp[j]: yvalue of this time period as intercept
-                            #       p[2 * (j + 1) + 1]: slope value corresponding to this time segment, slope
-                            #       (x[i] - x_bp[j]): date in time subtracted by this breakpoint, time-related
-                            yy = y_bp[j] + p[2 * (j + 1) + 1] * (x[i] - x_bp[j])
-                            break
-                # Put the fitted yvalues into an array
-                model_y[i] = yy
-            
-        else:
-            print(f'Warning, number of fit parameters {len(p)}')
-            print('is not even, fit may be rubbish.')
-
-        return(model_y)
+        self.TDSDates = self.important_dates()
     
-# --------------------------------------------------------------------------------#
-# --------------------------------------------------------------------------------#
-# MATH TOOLS
-# --------------------------------------------------------------------------------#
-# --------------------------------------------------------------------------------#
-    def scale_to_1(self, cenwave, segment, table):
-        """
-        """
-        breakpoints = self.breakpoints - self.reftime
+    def important_dates(self):
+        TDSDates = {
+            'breakpoints': self.breakpoints,
+            'HV_FUVA': self.HV_FUVA,
+            'HV_FUVB': self.HV_FUVB,
+            'LPs': self.LPs,
+            'reftime': self.reftime
+        }
 
-        table = table[(table['cenwave'] == cenwave) & (table['segment'] == segment)]
-
-        if len(table) == 0:
-            return
-        
-        sizes = ['small', 'large']
-        scaled_to_1_table = {}
-
-        # date of all exposures of cenwave and segment 
-        x = np.array(table['date-obs']).flatten() - self.reftime
-
-        for size in sizes:
-    
-            binned_net = np.array([binned_net for binned_net in table[f'{size}_scaled_net']])
-            stdev = np.array([stdev for stdev in table[f'{size}_scaled_stdev']])
-
-            best_fit      = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
-            best_fit_err  = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
-
-            for i, _ in enumerate(table[f'{size}_binned_wl'].iloc[0]):
-                
-                # Scaled net count of given cenwave and segment
-                y = binned_net[:,i]
-                error = stdev[:,i]
-
-                # Remove NaN values from y-array and from the corresponding xarray and error array
-                x = x[~np.isnan(y)]
-                error = error[~np.isnan(error)]
-                y = y[~np.isnan(y)]
-
-                # initial parameter guess
-                initial_params = list(np.polyfit(x, y, 1))
-
-                # polyfit returns the highest order coefficient first
-                # begin with intercept then slope [intercept, slope]
-                initial_params.reverse()
-
-                for bp in breakpoints:
-                    # Append breakpoint minus reftime to end of initial parameters list
-                    initial_params.append(bp)
-
-                    # Append slope of that breakpoint (minus reftime) to end of initial parameters list
-                    initial_params.append(initial_params[1])
-                
-                # Check to see if cenwave is a bluemode
-                blue_flag = False
-                if cenwave in [1222, 1096, 1055]:
-                    blue_flag = True
-                
-                # Create the parameter info list which mpfit.mpfit uses
-                parinfo = self.create_parainfo_list(initial_params, x, blue_flag)
-
-                # conduct the fit here
-                fit = self.mpfit_the_data(self.mpfitting_function, x, y, err = error, p0=initial_params, parinfo=parinfo)
-
-                pars = fit[0]
-                perrs = fit[2]
-
-                best_fit[i,:] = pars
-                best_fit_err[i,:] = perrs
-
-                if pars is None:
-                    print('No fit was done.')
-                else:
-                    y_intercept = best_fit[i,0]
-                    y_inter_stdev = best_fit_err[i,0]
-
-                    # Scale to 1
-                    stdev[:,i] = stdev[:,i]/y_intercept
-                    binned_net[:,i] = binned_net[:,i]/y_intercept
-                    best_fit[i, 1::2] = best_fit[i, 1::2]/y_intercept
-
-                    best_fit_err[i, 1::2] = np.sqrt(
-                        (best_fit_err[i, 1::2] / y_intercept)**2 +
-                        (best_fit[i, 1::2] / (y_intercept**2)*y_inter_stdev)**2
-                    )
-
-                    best_fit[i, 0] = 1.0
-
-            # Set the appropriate values to dataframe
-            scaled_to_1_table[f'{size}_scaled_net'] = binned_net
-            scaled_to_1_table[f'{size}_scaled_stdev'] = stdev
-            scaled_to_1_table[f'{size}_best_fit'] = best_fit
-            scaled_to_1_table[f'{size}_best_fit_err'] = best_fit_err
-        
-        return(scaled_to_1_table)
-
-# --------------------------------------------------------------------------------#
-
-    def create_parainfo_list(self, p0, x, blue_flag):
-        """
-        Create the parinfo list of dictionaries for mp
-
-        Args:
-            p0: list
-                a list of best guess input parameters
-            x: array
-                an array of dates of exposures minus reftime
-            blue_flag: boolean
-                If the cenwave in particular is a bluemode
-        
-        Returns:
-            parinfo: list
-                A dictionary of input parameters to pass into mpfit.
-                This is used to fix the breakpoint values (not try to find the best fit)
-        """
-
-        # Create array the length of initial parameters list
-        flag = np.zeros(len(p0), dtype=int)
-
-        # Create array the length of all breakpoints, will contain all breakpoints minus one
-        bp = np.zeros((len(p0)-2)//2)
-
-        # Set last flag as one to be an edge/boundary
-        flag[-1] = 1
-
-        # Loop over length of initial parameters list starting at index 2 for 2-stepsizes
-        #OR loop over the amount of breakpoints minus one.
-        for j in range(2, len(p0), 2):
-
-            # Set breakpoint value from initial parameters into its own array
-            bp[(j-2)//2] = p0[j]
-
-            # Set flag index = 1 if the breakpoint in initial_parameters is greater or equal
-            # to first in time date (x)
-            if p0[j] >= x[0]:
-                flag[j] = 1 # Flag index corresponding the breakpoint index in initial paramters
-                flag[j-1] = 1 # Flag index before breakpoint index in initial parameters
-                flag[j+1] = 1 # Flag index after breakpoint index in initial paramters
-            
-            # Get the index of the first slope that will be fitted
-            indx = np.where(flag == 1)[0][0] # index of the first slope to be fitted
-            tied = f'p[{str(indx)}]'
-
-            # Do not fit slope of first segment if less than 4 points for blue mode
-            if (x[0] < bp[-1]) and (blue_flag == True):
-                
-                # If there are less than 4 points for blue mode in first in time then set
-                # flag in those indx to be -1 (to be excluded) and look at next two indx
-                if ( len(np.where(x < bp[(indx-1)//2])[0]) < 4):
-                    flag[indx] = -1
-                    tied = f'p[{str(indx+2)}]'
-            
-            # List that will hold all the dictionaries
-            parinfo = []
-
-            # Loop over length of initial paramters list
-            for j, _ in enumerate(p0):
-
-                # Fix the breakpoints
-                if (j > 1) and (j%2 == 0):
-                    parinfo.append({
-                        'value': p0[j], # breakpoint - reftime
-                        'fixed': True,
-                        'limited':[False, False],
-                        'limits': [0,0],
-                        'step': None,
-                        'mpside': 0,
-                        'tied':'',
-                        'mpprint': 1
-                    })
-                else:
-                    if (j > 0) and (flag[j] == 0):
-
-                        # Fix slopes of segment with no data to slope of first segment with data
-                        # (in practice, assumes all segments have data if breakpoint is after the 1st data)
-                        p0[j] = 0.0
-                        parinfo.append({
-                            'value': p0[j],
-                            'fixed': True,
-                            'limited': [False, False],
-                            'limits': [0,0],
-                            'step': None,
-                            'mpside': 0,
-                            'mpmaxstep': 0,
-                            'tied': '',
-                            'mpprint': 1
-                        })
-                    
-                    elif (flag[j] == -1):
-
-                        # For blue modes, ties slope of 1st segment with data to slope of the 2nd segment
-                        # if the 1st segment has less than 4 measurements (fit results were unstable from one
-                        # wavelength bin to another)
-                        parinfo.append({
-                            'value': p0[indx],
-                            'fixed': True,
-                            'limited': [False, False],
-                            'limits': [0,0],
-                            'step': None,
-                            'mpside': 0,
-                            'mpmaxstep': 0,
-                            'tied': tied,
-                            'mpprint': 1
-                        })
-
-                    else:
-                        parinfo.append({
-                            'value': p0[j],
-                            'fixed': False,
-                            'limited': [False, False],
-                            'limits': [0,0],
-                            'step': None,
-                            'mpside': 0,
-                            'mpmaxstep': 0,
-                            'tied': '',
-                            'mpprint': 1
-                        })
-        return (parinfo)
-    
-# --------------------------------------------------------------------------------#
-    def mpfit_the_data(self, func, x, y, err=None, p0=None, parinfo=None):
-        """
-        Call the fitting function. Uses mpfit. 
-
-        Args: 
-            func: function
-                mpfit function
-            x: array
-                date - reftime
-            y: array
-                scaled net count rate
-            err: array
-                stdev of scaled net count rate
-            p0: list
-                initial parameters guess
-            parinfo: list of dictionaries
-                list of dictionaries with parameter information used in mpfit
-        """
-        if err is None:
-            err = np.ones(len(x))
-        if p0 is None:
-            print('error, initial parameter guesses not provided')
-            return (None, None, None)
-        if len(p0) == 1: # Zero line segments.
-            w = 1.0 / err**2
-            """
-            Return the weighted mean, unbiased weighted sample variance, and
-            the weighted standard error.
-            """
-            if len(y) <= 0: #There is no data.
-                return (None, None, None)
-            elif len(y) == 1: # No variance or standard error
-                return (y[0], 0.0,0.0)
-            
-            # Weighted mean.
-            wmeany, wsum = np.ma.average(y, weights=w, returned=True)
-
-            # Unbiased weighted sample variance
-            wsum2 = wsum**2
-            w2sum = np.sum(w**2)
-            n = len(w)
-
-            if abs(wsum2 - w2sum) < np.finfo(np.dtype(wsum2)).eps:
-                s2 = 1.0 / (n - 1) * np.sum((y - wmeany)**2)
-            else:
-                s2 = (np.sum(w * y**2) * wsum - np.sum(w * y)**2) / (wsum2 - w2sum)
-
-            # Standard error in the weighted mean.
-            t1 = n / ((n - 1) * wsum2)
-            meanw = np.mean(w)
-            t2 = np.sum((w * x - meanw * wmeany)**2)
-            t3 = wmeany * np.sum((w - meanw) * (w * y - meanw * wmeany))
-            t4 = wmeany**2 * np.sum((w - meanw)**2)
-            wse = np.sqrt(t1 * (t2 - 2.0 * t3 + t4))
-
-            return ([wmeany], [s2], [wse])
-        
-        fa = {'x': x, 'y': y, 'err': err}
-
-        m = mpfit.mpfit(self.mpfitting_function, p0, functkw=fa, parinfo=parinfo, quiet=True, debug=False)
-
-        if m.status <= 0:
-            print(f'mpfit, status={m.status}, {m.errmsg}')
-            popt, pcov, perr = None, None, None
-        
-        # Grab the parameters, covarience, and parameters error
-        popt = m.params
-        pcov = m.covar
-        perr = m.perror
-
-        return (popt, pcov, perr)
-
-# --------------------------------------------------------------------------------#
-    def mpfitting_function(self, p, fjac=None, x=None, y=None, err=None):
-        """
-        Mpfit fitting function.
-
-        Args:
-            p: list
-                list of initial parameters, p0
-            fjac: unknown
-                partial derivatives?
-            x: array
-                date array of date of exposures - reftime in decimal year
-            y: array
-                scaled net count rate
-            err: array
-                scaled stdev of scaled net count rate
-        """
-
-        status = 0
-        if fjac is not None:
-            print('mpfitting_function does not calculate partial derivatives.')
-            status = -1
-        if x is None:
-            print('mpfitting_function requires that x be provided.')
-            status = -2
-        if y is None:
-            print('mpfitting_function requires that y be provided.')
-            status = -2
-        if err is None:
-            print('The error vector is assumed to be unity.')
-            err = np.ones(len(x))
-        elif 0.0 in err[:]:
-            print('Zero value in error vector.')
-            status = -3
-        
-        if status == 0:
-            model_y = self.broken_lines(x, *p)
-
-        weighted_deviation = (y - model_y) / err
-
-        return ([status, weighted_deviation])
+        return(TDSDates)
 
 # --------------------------------------------------------------------------------#
     def scalings(self, table):
@@ -1157,9 +606,9 @@ class FUVTDSBase:
                             }
                         )
                     tables.append(x1d_table)
-                table = pd.concat(tables)
-
-                return (table)
+                if len(tables) != 0:
+                    table = pd.concat(tables)
+                    return table
 
 # --------------------------------------------------------------------------------#
     def parse_infiles(self, PIDs, csv_file, COSMO = '/grp/hst/cos2/cosmo/', pattern='*x1d.fits*'):
@@ -1221,7 +670,7 @@ class FUVTDSBase:
                                                 'large_scaled_stdev',
                                                 'date-obs'])
            csv_file_save = csv_file_save.rename(columns={'date-obs-fits': 'date-obs'})
-           tables = tables.drop(columns=['date-obs-fits'])
+           #tables = tables.drop(columns=['date-obs-fits'])
            if os.path.exists(csv_file):
                csv_file_save.to_csv(csv_file, mode='w+')
            else:
@@ -1247,236 +696,572 @@ class FUVTDSBase:
         path_list = glob.glob(total_path)
         return(path_list)
 
+
 class FUVTDSMonitor(object):
-    """
-    This plotting function
-    """
 
-    # adding the life time positions, hv raises, and whatever else lol
-
-
-    def __init__(self, TDSData) -> None:
-        """
-        Args:
-            TDSData: object that contains all the relavent information of the TDS analysis.
-        """
-        self.trends = TDSData
-
+    def __init__(self, TDSDates):
         # the vertical lines used in plots
-        self.breakpoints = TDSData.breakpoints
-        self.HV_FUVA = TDSData.HV_FUVA
-        self.HV_FUVB = TDSData.HV_FUVB
-        self.LPs = TDSData.LPs
+        self.breakpoints = np.array(TDSDates['breakpoints'])
+        self.HV_FUVA = np.array(TDSDates['HV_FUVA'])
+        self.HV_FUVB = np.array(TDSDates['HV_FUVB'])
+        self.LPs = np.array(TDSDates['LPs'])
+        self.reftime = TDSDates['reftime']
+# --------------------------------------------------------------------------------#
+# --------------------------------------------------------------------------------#
+# PLOT TOOLS
+# --------------------------------------------------------------------------------#
+    def add_lines(self, lines, style, name, yrange, second=False):
+        """
+        """
 
-        # plotting
-        self.solar  = self.get_solar_data()
-        self.plot_solar_flux()
-        self.rel_sens()
+        # this list will host information about each line
+        vlines = []
+        if second == False:
+            for i, line in enumerate(lines):
+                if i == 0:
+                    # append plot information of vertical line
+                    vlines.append({
+                        'x': [line, line],
+                        'y': yrange,
+                        'mode': 'lines',
+                        'line': style,
+                        'name': name,
+                        'legendgroup': name,
+                        'showlegend': True
+                    })
+                else:
+                    vlines.append({
+                        'x': [line, line],
+                        'y': yrange,
+                        'mode': 'lines',
+                        'line': style,
+                        'name': name,
+                        'legendgroup': name,
+                        'showlegend': False
+                    })
+        else:
+            for i, line in enumerate(lines):
 
+                vlines.append({
+                        'x': [line, line],
+                        'y': yrange,
+                        'mode': 'lines',
+                        'line': style,
+                        'name': name,
+                        'legendgroup': name,
+                        'showlegend': False
+                    })
+        
+        return(vlines)
+
+# --------------------------------------------------------------------------------#
+    def get_solar_data(self, spaceweather_url = 'https://www.spaceweather.gc.ca/solar_flux_data/daily_flux_values/fluxtable.txt'):
+        """
+        Get the solar flux data from this spaceweather website, updates each day.
+        """
+
+        # retrieve the flux table from the website where solar flux is hosted
+        response = requests.get(spaceweather_url)
+        if response.status_code == 200:
+            with open('fluxtable.txt', 'wb') as file:
+                file.write(response.content)
+            with open('fluxtable.txt', 'r') as file:
+                lines = file.readlines()
+            
+            # grab the data from file
+            cleaned_data = ''.join([line for line in lines if '---' not in line])
+
+            # turn into dataframe
+            df = pd.read_csv(StringIO(cleaned_data), delim_whitespace=True, comment='#')
+
+            # use fluxjulian to index
+            df.index = pd.DatetimeIndex(df['fluxjulian'])
+            df['date'] = Time(df['fluxjulian'], format='jd').decimalyear
+
+            # drop the columns we don't need and rename what we do need (date and f10.7)
+            df = df.drop(columns=['fluxdate', 'fluxtime', 'fluxcarrington', 'fluxadjflux', 'fluxursi'])
+            df.rename(columns= {'fluxobsflux':'f10.7'}, inplace=True)
+            df = df.reindex(columns=['date', 'f10.7'])
+
+            # only interested in data post 2009.5, after COS launch
+            df = df[df['date'] >= 2009.5]
+
+            # return solar flux df
+            return(df)
+
+# --------------------------------------------------------------------------------#
+    def tds_backout(self, response, wavelength, mjd, opt_elem, aperture, segment, cenwave, tdstab=None):
+        """
+        """
+        #-------#
+        # get correction array
+        #-------#
+
+        def calculate_drop(time, ref_time, slope, intercept):
+            """
+            Equation comes from the current ICD-47
+            """
+
+            frac_drop = ( (( time - ref_time ) * slope) / (365.25*100) ) + intercept
+            return frac_drop
+        
+        tds_data = fits.getdata(tdstab,ext=1 )
+        REF_TIME = fits.getval(tdstab,'REF_TIME',ext=1) #Should be 52922.0 (2003.77)
+        mode_index = np.where((tds_data['OPT_ELEM'] == opt_elem) &
+                            (tds_data['APERTURE'] == aperture) &
+                            (tds_data['SEGMENT'] == segment) &
+                            (tds_data['CENWAVE'] == cenwave))[0]
+
+        mode_line = tds_data[ mode_index ]
+
+        tds_nt = mode_line['NT'][0]
+        tds_wavelength = mode_line['WAVELENGTH'][0]
+        smaller_index = np.where( mode_line['TIME'][0][:tds_nt] < mjd )[0]
+        time_index = smaller_index.max()
+
+        tds_slope = mode_line['SLOPE'][0]
+        tds_intercept = mode_line['INTERCEPT'][0]
+
+        correction_array = np.zeros( len(tds_wavelength) )
+        
+        for i, _ in enumerate( tds_wavelength ):
+            correction = calculate_drop( mjd, REF_TIME, tds_slope[time_index,i], tds_intercept[time_index,i] )
+            correction_array[i] = correction
+
+        #-------
+        # interpolate onto input arrays
+        #------
+
+        interp_function = interp1d( tds_wavelength, correction_array, 1 )
+        interp_correction = interp_function( wavelength )
+
+        return response / interp_correction
+# --------------------------------------------------------------------------------#
+    def broken_lines(self, x, *p):
+        """ Fitting function for a segmented line with n_bp breakpoints."""
+        # The actual function that is done.
+        # Uses date - reftime and initial parameters
+        # and returns the yvalues of all the linear fits
+        model_y = np.zeros(len(x))
+
+        # number of breakpoints
+        n_bp = 0
+
+        # number of parameters
+        n_pars = len(p)
+
+        if n_pars == 1:
+            model_y = [p[0] for e in x]
+        
+        elif n_pars == 2:
+            # If there are only two parameters (aka zero breakpoints), then
+            # do a single linear fit for each time value of the exposure
+            # this will be date - reftime
+            y = [p[0] + p[1] * e for e in x]
+        
+        # If there is an even amount of parameters (as there should), do the the fit
+        elif not len(p) % 2:
+
+            # Removees the intercept and the slope (first two elements in p0) and 
+            # counts the number of breakpoints we are working with
+            n_bp = int((len(p) - 2) // 2)
+
+            # x-values == number of breakpoints
+            x_bp = np.zeros(n_bp)
+
+            # y-values == number of breakpoints, scaled net count related
+            y_bp = np.zeros(n_bp)
+
+            # set first breakpoint to first value in x array, time-related
+            x_bp[0] = p[2]
+
+            # Do linear fit with the first handful of parameters where
+            #       p[0]: intercept, initial parameters
+            #       p[1]: slope, initial parameters
+            #       p[2]: first breakpoint, time-related
+            y_bp[0] = p[0] + p[1] * p[2]
+
+            # Loop over the amount of breakpoints, skipping the first breakpoint
+            for j in range(1, n_bp):
+                # set x value to the next breakpoint
+                x_bp[j] = p[2 * (j+1)]
+
+                # Calculate the yvalue of that breakpoint
+                #       y_bp[j - 1]: last y value, intercept
+                #       p[2 * j + 1]: the next slope value of this breakpoint, slope
+                #       x_bp[j] - x_bp[j - 1]: subtract the last breakpoint to the current one to be time-related, time-related x value
+                y_bp[j] = y_bp[j - 1] + p[2 * j + 1] * (x_bp[j] - x_bp[j - 1])
+            
+            # Loop over the number of xvalues, aka number of date values from all exposures
+            for i, _ in enumerate(x):
+
+                # Get first in time line segment
+                if x[i] < x_bp[0]:
+
+                    # Do a linear fit
+                    yy = p[0] + p[1] * x[i]
+                
+                # Get last in time line segment
+                elif x[i] >= x_bp[-1]:
+
+                    # Do a linear fit
+                    #       y_bp[-1]: last yvalue breakpoint related, intercept
+                    #       p[-1]: last slope value, initial parameters
+                    #       (x[i] - p[-2]): last date in time subtracted by last breakpoint in initial parameters
+                    yy = y_bp[-1] + p[-1] * (x[i] - p[-2])
+                
+                # Get the in between line segments
+                elif n_bp > 1:
+
+                    # Loop over the breakpoints
+                    for j in range(n_bp - 1):
+
+                        # Get the date values in between the breakpoints
+                        if (x[i] >= x_bp[j]) and (x[i] < x_bp[j+1]):
+
+                            # Do a linear fit
+                            #       y_bp[j]: yvalue of this time period as intercept
+                            #       p[2 * (j + 1) + 1]: slope value corresponding to this time segment, slope
+                            #       (x[i] - x_bp[j]): date in time subtracted by this breakpoint, time-related
+                            yy = y_bp[j] + p[2 * (j + 1) + 1] * (x[i] - x_bp[j])
+                            break
+                # Put the fitted yvalues into an array
+                model_y[i] = yy
+            
+        else:
+            print(f'Warning, number of fit parameters {len(p)}')
+            print('is not even, fit may be rubbish.')
+
+        return(model_y)
     
-    def plot_solar_flux(self):
+# --------------------------------------------------------------------------------#
+# --------------------------------------------------------------------------------#
+# MATH TOOLS
+# --------------------------------------------------------------------------------#
+# --------------------------------------------------------------------------------#
+    def scale_to_1(self, table, size):
         """
-        Plot the solar flux against the relative sensitivity of all the modes, large bins.
         """
+        breakpoints = self.breakpoints - self.reftime
 
-        # Create figure with secondary y-axis
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-        # Plot the solar flux from dataframe, both smoothed and unsmoothed
-        unsmoothed = go.Scatter(x=self.solar['date'],
-                            y=self.solar['f10.7'],
-                            line_shape='linear',
-                            line=dict(color='royalblue', width=4),
-                            name='10.7 cm radio flux',
-                            opacity=0.5)
+        if len(table) == 0:
+            return
         
-        smoothed = go.Scatter(x=self.solar['date'],
-                            y=convolve(self.solar['f10.7'], Box1DKernel(150), boundary='extend'),
-                            line_shape='linear',
-                            line=dict(color='firebrick', width=2),
-                            name='Smoothed 10.7 cm radio flux',
-                            opacity=0.6)
-        
-        # Plot the fractional throughput!
-        marker_type = {'FUVA': 'circle',
-                       'FUVB': 'x'}
-        for cenwave in self.trends.large:
-            for segment in self.trends.large[cenwave]:
+        scaled_to_1_table = {}
 
-                grating = self.trends.large[cenwave][segment]['grating'][0]
+        # date of all exposures of cenwave and segment 
+        x = np.array(table['date-obs']).flatten() - self.reftime
 
-                # Fractional throughput, looped over all monitored modes
-                data = go.Scatter(
-                    x=self.trends.large[cenwave][segment]['date'],
-                    y=self.trends.large[cenwave][segment]['scaled_net'][:,0],
-                    mode='markers',
-                    marker_symbol=marker_type[segment],
-                    name=f'{grating}/{cenwave}/{segment}',
-                    customdata= np.stack(
-                        (self.trends.large[cenwave][segment]['rootname'],
-                         self.trends.large[cenwave][segment]['lp'],
-                         self.trends.large[cenwave][segment]['PID'],
-                         self.trends.large[cenwave][segment]['target']), 
-                         axis=-1
-                    ),
-                    hovertemplate=
-                    'Rootname: %{customdata[0]}<br>'+
-                    'Life_adj: %{customdata[1]}<br>'+
-                    'Proposid: %{customdata[2]}<br>'+
-                    'Target: %{customdata[3]}'
-                    "<extra></extra>"
+        binned_net = np.array([binned_net for binned_net in table[f'{size}_scaled_net']])
+        stdev = np.array([stdev for stdev in table[f'{size}_scaled_stdev']])
+
+        best_fit      = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
+        best_fit_err  = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
+
+        for i, _ in enumerate(table[f'{size}_binned_wl'].iloc[0]):
+            
+            # Scaled net count of given cenwave and segment
+            y = binned_net[:,i]
+            error = stdev[:,i]
+
+            # Remove NaN values from y-array and from the corresponding xarray and error array
+            x = x[~np.isnan(y)]
+            error = error[~np.isnan(error)]
+            y = y[~np.isnan(y)]
+
+            # initial parameter guess
+            initial_params = list(np.polyfit(x, y, 1))
+
+            # polyfit returns the highest order coefficient first
+            # begin with intercept then slope [intercept, slope]
+            initial_params.reverse()
+
+            for bp in breakpoints:
+                # Append breakpoint minus reftime to end of initial parameters list
+                initial_params.append(bp)
+
+                # Append slope of that breakpoint (minus reftime) to end of initial parameters list
+                initial_params.append(initial_params[1])
+            
+            # Check to see if cenwave is a bluemode
+            blue_flag = False
+            if table['cenwave'].iloc[0] in [1222, 1096, 1055]:
+                blue_flag = True
+            
+            # Create the parameter info list which mpfit.mpfit uses
+            parinfo = self.create_parainfo_list(initial_params, x, blue_flag)
+
+            # conduct the fit here
+            fit = self.mpfit_the_data(self.mpfitting_function, x, y, err = error, p0=initial_params, parinfo=parinfo)
+
+            pars = fit[0]
+            perrs = fit[2]
+
+            best_fit[i,:] = pars
+            best_fit_err[i,:] = perrs
+
+            if pars is None:
+                print('No fit was done.')
+            else:
+                y_intercept = best_fit[i,0]
+                y_inter_stdev = best_fit_err[i,0]
+
+                # Scale to 1
+                stdev[:,i] = stdev[:,i]/y_intercept
+                binned_net[:,i] = binned_net[:,i]/y_intercept
+                best_fit[i, 1::2] = best_fit[i, 1::2]/y_intercept
+
+                best_fit_err[i, 1::2] = np.sqrt(
+                    (best_fit_err[i, 1::2] / y_intercept)**2 +
+                    (best_fit[i, 1::2] / (y_intercept**2)*y_inter_stdev)**2
                 )
 
-                # add trace to plot
-                fig.add_trace(data, secondary_y=False)
+                best_fit[i, 0] = 1.0
+
+        # Set the appropriate values to dataframe
+        scaled_to_1_table[f'{size}_scaled_net'] = [binned_net]
+        scaled_to_1_table[f'{size}_scaled_stdev'] = [stdev]
+        scaled_to_1_table[f'{size}_best_fit'] = [best_fit]
+        scaled_to_1_table[f'{size}_best_fit_err'] = [best_fit_err]
+
+        scaled_to_1_table = pd.DataFrame(scaled_to_1_table)
         
-        # add solar flux smoothed and unsmoothed to plot based off secondary_y
-        fig.add_trace(unsmoothed, secondary_y=True)
-        fig.add_trace(smoothed, secondary_y=True)
+        return(scaled_to_1_table)
 
-        # add vertical lines
-        # this might change bc of relative sensitivity function
-        fig.add_traces(self._add_lines(self.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint'))
-        fig.add_traces(self._add_lines(self.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA'))
-        fig.add_traces(self._add_lines(self.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB'))
-        fig.add_traces(self._add_lines(self.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch'))
+# --------------------------------------------------------------------------------#
 
-        # add the title
-        fig.update_layout(
-            title_text="TDS Solar Flux"
-        )
-
-        # set x-axis title
-        fig.update_xaxes(title_text="Date")
-        
-        # set y-axes titles
-        fig.update_yaxes(title_text="Fractional Throughput", range=(0.0, 1.1), secondary_y=False)
-        fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
-        fig.write_html('tds_solar_flux.html') #maybe add the date?
-    
-    def rel_sens(self):
+    def create_parainfo_list(self, p0, x, blue_flag):
         """
-        Plot the relative sensitivity of all the monitored modes and residuals against best fit
-        parameters and current tdstab.
+        Create the parinfo list of dictionaries for mp
+
+        Args:
+            p0: list
+                a list of best guess input parameters
+            x: array
+                an array of dates of exposures minus reftime
+            blue_flag: boolean
+                If the cenwave in particular is a bluemode
         
-        need to add:
-        -residuals
-        -fitted lines
-        -tdstab current
-        -verticcal lines
+        Returns:
+            parinfo: list
+                A dictionary of input parameters to pass into mpfit.
+                This is used to fix the breakpoint values (not try to find the best fit)
         """
 
-        # large wavelength bins and small wavelength bins are both plotted, will loop over
-        sizes = [self.trends.large, self.trends.small]
-        
-        # for the html file to save as separate files
-        name = ['large', 'small']
-        
-        # loop over the trend sizes
-        for j, trends in enumerate(sizes):
+        # Create array the length of initial parameters list
+        flag = np.zeros(len(p0), dtype=int)
 
-            # hold the labels of each unique monitored mode
-            labels = []
+        # Create array the length of all breakpoints, will contain all breakpoints minus one
+        bp = np.zeros((len(p0)-2)//2)
 
-            # save the total wavelength bins used in all modes
-            tot_wl_bins = []
+        # Set last flag as one to be an edge/boundary
+        flag[-1] = 1
 
-            # create figure with two subplots
-            fig = make_subplots(rows=2, cols=1,
-                            shared_xaxes=True,
-                            vertical_spacing=0.1,
-                            subplot_titles=("Original Data", "Residuals"))
+        # Loop over length of initial parameters list starting at index 2 for 2-stepsizes
+        #OR loop over the amount of breakpoints minus one.
+        for j in range(2, len(p0), 2):
+
+            # Set breakpoint value from initial parameters into its own array
+            bp[(j-2)//2] = p0[j]
+
+            # Set flag index = 1 if the breakpoint in initial_parameters is greater or equal
+            # to first in time date (x)
+            if p0[j] >= x[0]:
+                flag[j] = 1 # Flag index corresponding the breakpoint index in initial paramters
+                flag[j-1] = 1 # Flag index before breakpoint index in initial parameters
+                flag[j+1] = 1 # Flag index after breakpoint index in initial paramters
             
-            # Loop over the cenwave, segment, and wavelength bins
-            for cenwave in trends:
-                for segment in trends[cenwave]:
-                    for i, _ in enumerate(trends[cenwave][segment]['binned_wl']):
+            # Get the index of the first slope that will be fitted
+            indx = np.where(flag == 1)[0][0] # index of the first slope to be fitted
+            tied = f'p[{str(indx)}]'
 
-                        # Make trace of relative sensntivity of this wavelength bin
-                        trace = go.Scatter(
-                            x=trends[cenwave][segment]['date'],
-                            y=trends[cenwave][segment]['scaled_net'][:,i],
-                            error_y=dict(
-                                    type='data',
-                                    array=trends[cenwave][segment]['scaled_stdev'][:,i],
-                                    visible=True
-                                ),
-                            mode='markers',
-                            name=f"{trends[cenwave][segment]['grating'][0]}/{cenwave}/{segment} {trends[cenwave][segment]['wl_bin_edges'][i]} - {trends[cenwave][segment]['wl_bin_edges'][i+1]}",
-                            customdata= np.stack(
-                                    (trends[cenwave][segment]['rootname'],
-                                     trends[cenwave][segment]['lp'],
-                                     trends[cenwave][segment]['PID'],
-                                     trends[cenwave][segment]['target']),
-                                     axis=-1
-                                ),
-                            hovertemplate=
-                                'Rootname: %{customdata[0]}<br>'+
-                                'Life_adj: %{customdata[1]}<br>'+
-                                'Proposid: %{customdata[2]}<br>'+
-                                'Target: %{customdata[3]}'
-                                "<extra></extra>"
-                        )
+            # Do not fit slope of first segment if less than 4 points for blue mode
+            if (x[0] < bp[-1]) and (blue_flag == True):
+                
+                # If there are less than 4 points for blue mode in first in time then set
+                # flag in those indx to be -1 (to be excluded) and look at next two indx
+                if ( len(np.where(x < bp[(indx-1)//2])[0]) < 4):
+                    flag[indx] = -1
+                    tied = f'p[{str(indx+2)}]'
+            
+            # List that will hold all the dictionaries
+            parinfo = []
 
-                        # add the traces to the plot
-                        fig.add_trace(trace, row=1, col=1)
-                        fig.add_trace(trace, row=2, col=1)
+            # Loop over length of initial paramters list
+            for j, _ in enumerate(p0):
+
+                # Fix the breakpoints
+                if (j > 1) and (j%2 == 0):
+                    parinfo.append({
+                        'value': p0[j], # breakpoint - reftime
+                        'fixed': True,
+                        'limited':[False, False],
+                        'limits': [0,0],
+                        'step': None,
+                        'mpside': 0,
+                        'tied':'',
+                        'mpprint': 1
+                    })
+                else:
+                    if (j > 0) and (flag[j] == 0):
+
+                        # Fix slopes of segment with no data to slope of first segment with data
+                        # (in practice, assumes all segments have data if breakpoint is after the 1st data)
+                        p0[j] = 0.0
+                        parinfo.append({
+                            'value': p0[j],
+                            'fixed': True,
+                            'limited': [False, False],
+                            'limits': [0,0],
+                            'step': None,
+                            'mpside': 0,
+                            'mpmaxstep': 0,
+                            'tied': '',
+                            'mpprint': 1
+                        })
                     
-                    # Add the total wavelength bins used to list
-                    tot_wl_bins.append(i+1)
+                    elif (flag[j] == -1):
 
-                    # Add the unique label of this mode, regardless of wavelength bin
-                    labels.append(f"{trends[cenwave][segment]['grating'][0]}/{segment}/{cenwave}")
-            
-            # total amount of traces within figure
-            ld = len(fig.data)
-            
-            # This will keep only the wavelength bins of the first mode visible 
-            # (etc, first 34 bins * 2 for both plots) 
-            for k in range(tot_wl_bins[0]*2, ld):
-                fig.update_traces(visible=False, selector=k)
-            
-            def create_layout_button(k, label):
-                # k is number for which element of labels array
-                # label is the unique label of this mode
+                        # For blue modes, ties slope of 1st segment with data to slope of the 2nd segment
+                        # if the 1st segment has less than 4 measurements (fit results were unstable from one
+                        # wavelength bin to another)
+                        parinfo.append({
+                            'value': p0[indx],
+                            'fixed': True,
+                            'limited': [False, False],
+                            'limits': [0,0],
+                            'step': None,
+                            'mpside': 0,
+                            'mpmaxstep': 0,
+                            'tied': tied,
+                            'mpprint': 1
+                        })
 
-                # Visibility array, fill all False
-                # ld -> the number of traces in the figure
-                visibility = [False]*ld
-
-                # Sum all previous # of wavelength bins for each mode prior to this specific k value
-                tot = 0
-                for i in range(k+1):
-                    if i != 0:
-                        tot+= tot_wl_bins[i-1]*2
+                    else:
+                        parinfo.append({
+                            'value': p0[j],
+                            'fixed': False,
+                            'limited': [False, False],
+                            'limits': [0,0],
+                            'step': None,
+                            'mpside': 0,
+                            'mpmaxstep': 0,
+                            'tied': '',
+                            'mpprint': 1
+                        })
+        return (parinfo)
     
-                # Loop over the visibility array to only select True for ones corresponding to mode selected
-                for tr in range(tot, tot_wl_bins[k]*2+tot):
-                    visibility[tr] = True
+# --------------------------------------------------------------------------------#
+    def mpfit_the_data(self, func, x, y, err=None, p0=None, parinfo=None):
+        """
+        Call the fitting function. Uses mpfit. 
 
-                # dictionary of the button
-                return (dict(
-                    label=label,
-                    method='update',
-                    args=[
-                        {'visible': visibility,
-                         'title':label,
-                         'showlegend':True}
-                    ]
-                ))
+        Args: 
+            func: function
+                mpfit function
+            x: array
+                date - reftime
+            y: array
+                scaled net count rate
+            err: array
+                stdev of scaled net count rate
+            p0: list
+                initial parameters guess
+            parinfo: list of dictionaries
+                list of dictionaries with parameter information used in mpfit
+        """
+        if err is None:
+            err = np.ones(len(x))
+        if p0 is None:
+            print('error, initial parameter guesses not provided')
+            return (None, None, None)
+        if len(p0) == 1: # Zero line segments.
+            w = 1.0 / err**2
+            """
+            Return the weighted mean, unbiased weighted sample variance, and
+            the weighted standard error.
+            """
+            if len(y) <= 0: #There is no data.
+                return (None, None, None)
+            elif len(y) == 1: # No variance or standard error
+                return (y[0], 0.0,0.0)
+            
+            # Weighted mean.
+            wmeany, wsum = np.ma.average(y, weights=w, returned=True)
 
-            # create buttons
-            updatemenus = [
-                go.layout.Updatemenu(
-                    active=0,
-                    buttons=[
-                        create_layout_button(k, label) for k, label in enumerate(labels)
-                    ]
-                ),
-            ]
+            # Unbiased weighted sample variance
+            wsum2 = wsum**2
+            w2sum = np.sum(w**2)
+            n = len(w)
 
-            # add in the menu to the figure
-            fig.update_layout(updatemenus=updatemenus)
+            if abs(wsum2 - w2sum) < np.finfo(np.dtype(wsum2)).eps:
+                s2 = 1.0 / (n - 1) * np.sum((y - wmeany)**2)
+            else:
+                s2 = (np.sum(w * y**2) * wsum - np.sum(w * y)**2) / (wsum2 - w2sum)
 
-            # write the plot to the html file
-            fig.write_html(f'rel_sens_{name[j]}.html')
+            # Standard error in the weighted mean.
+            t1 = n / ((n - 1) * wsum2)
+            meanw = np.mean(w)
+            t2 = np.sum((w * x - meanw * wmeany)**2)
+            t3 = wmeany * np.sum((w - meanw) * (w * y - meanw * wmeany))
+            t4 = wmeany**2 * np.sum((w - meanw)**2)
+            wse = np.sqrt(t1 * (t2 - 2.0 * t3 + t4))
+
+            return ([wmeany], [s2], [wse])
+        
+        fa = {'x': x, 'y': y, 'err': err}
+
+        m = mpfit.mpfit(self.mpfitting_function, p0, functkw=fa, parinfo=parinfo, quiet=True, debug=False)
+
+        if m.status <= 0:
+            print(f'mpfit, status={m.status}, {m.errmsg}')
+            popt, pcov, perr = None, None, None
+        
+        # Grab the parameters, covarience, and parameters error
+        popt = m.params
+        pcov = m.covar
+        perr = m.perror
+
+        return (popt, pcov, perr)
+
+# --------------------------------------------------------------------------------#
+    def mpfitting_function(self, p, fjac=None, x=None, y=None, err=None):
+        """
+        Mpfit fitting function.
+
+        Args:
+            p: list
+                list of initial parameters, p0
+            fjac: unknown
+                partial derivatives?
+            x: array
+                date array of date of exposures - reftime in decimal year
+            y: array
+                scaled net count rate
+            err: array
+                scaled stdev of scaled net count rate
+        """
+
+        status = 0
+        if fjac is not None:
+            print('mpfitting_function does not calculate partial derivatives.')
+            status = -1
+        if x is None:
+            print('mpfitting_function requires that x be provided.')
+            status = -2
+        if y is None:
+            print('mpfitting_function requires that y be provided.')
+            status = -2
+        if err is None:
+            print('The error vector is assumed to be unity.')
+            err = np.ones(len(x))
+        elif 0.0 in err[:]:
+            print('Zero value in error vector.')
+            status = -3
+        
+        if status == 0:
+            model_y = self.broken_lines(x, *p)
+
+        weighted_deviation = (y - model_y) / err
+
+        return ([status, weighted_deviation])
