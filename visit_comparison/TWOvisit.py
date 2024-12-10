@@ -73,7 +73,7 @@ def binned(files, dir = '/grp/hst/cos2/cosmo/'):
         data = fits.getdata(file, 1)
 
         # skip bad datasets
-        if (hdr1['exptime'] == 0) | (len(data['wavelength'][0]) == 0) | (hdr0['targname'] == 'WAVE'):
+        if (hdr1['exptime'] == 0) | (len(data['wavelength']) == 0) | (hdr0['targname'] == 'WAVE'):
             continue
 
         for i, segment in enumerate(data['segment']):
@@ -195,9 +195,9 @@ def plot(df):
 if __name__ == "__main__":
     """
     """
-    ref = {'PID': 17328,
-           'visit': '9b'}
-    new = {'PID': 17326,
-           'visit': '9b'}
+    ref = {'PID': 17326,
+           'visit': '9a'}
+    new = {'PID': 17624,
+           'visit': '1a'}
     
     plot_compare(ref, new)
