@@ -20,6 +20,7 @@ def generate_data(PIDs='fuvtds_analysis_list.dat'):
 
     return(df, TDSDates)
 
+# Current TDSTAB in use
 TDSTAB = '/grp/hst/cdbs/lref/83j20454l_tds.fits'
 
 
@@ -44,6 +45,7 @@ app.layout = html.Div(children=[
             dcc.Store(id="computed-results"), # store for the computed results,
             dcc.Store(id="dates"), # store for the computed results,
             html.Br(),
+
             html.Label('Grating'),
             dcc.Dropdown(
                 id='gratings'),
@@ -57,6 +59,11 @@ app.layout = html.Div(children=[
 
             html.Label('Segment'),
             dcc.Dropdown(id='segments'),
+            html.Br(),
+
+            html.Label('Size'),
+            dcc.Dropdown(id='sizes'),
+
             html.Div(id='display-selected-values')
         ], style={'width': '10%', 'display': 'inline-block'}),
 
@@ -101,8 +108,9 @@ def run_computation(n_clicks):
        Input('gratings', 'value'),
        Input('cenwaves', 'value'),
        Input('segments', 'value'),
+       Input('sizes', 'value'),
        Input('wavelength-bins', 'value'))
-def update_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_wl_bin):
+def update_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_size, selected_wl_bin):
     if data is None:
         fig = make_subplots(rows=2, cols=1,
                         shared_xaxes=True,
@@ -121,14 +129,14 @@ def update_graph(data, dates, selected_grating, selected_cenwave, selected_segme
 
     monitor = FUVTDSMonitor(dates)
 
-    scaled_df = monitor.scale_to_1(table=df, size='small') # scale to one
+    scaled_df = monitor.scale_to_1(table=df, size=selected_size) # scale to one
 
-    net  = np.array([net for net in scaled_df['small_scaled_net'].iloc[0]])
-    net_err = np.array([net for net in scaled_df['small_scaled_stdev'].iloc[0]])
-    best_fit_model = np.array([net for net in scaled_df['small_best_fit'].iloc[0]])
+    net  = np.array([net for net in scaled_df[f'{selected_size}_scaled_net'].iloc[0]])
+    net_err = np.array([net for net in scaled_df[f'{selected_size}_scaled_stdev'].iloc[0]])
+    best_fit_model = np.array([net for net in scaled_df[f'{selected_size}_best_fit'].iloc[0]])
 
-    binned_wl = np.array([wl for wl in df['small_binned_wl']])[0]
-    wl_edges  = np.array([wl for wl in df['small_wl_edges']])[0]
+    binned_wl = np.array([wl for wl in df[f'{selected_size}_binned_wl']])[0]
+    wl_edges  = np.array([wl for wl in df[f'{selected_size}_wl_edges']])[0]
 
     # TDS model
     tds = np.transpose([1.0/monitor.tds_backout(
@@ -270,6 +278,12 @@ def update_graph(data, dates, selected_grating, selected_cenwave, selected_segme
                 line_color='purple'), row=2, col=1)
             
 
+            # add traces
+            fig.add_trace(curr_sens, row=1, col=1)
+            fig.add_trace(best_fit, row=1, col=1)
+            fig.add_trace(tds_model, row=1, col=1)
+
+
             # add vertical lines here
             fig.add_traces(monitor.add_lines(monitor.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
             fig.add_traces(monitor.add_lines(monitor.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [min(residual)-3, max(residual)+3],True), rows=2, cols=1)
@@ -283,16 +297,15 @@ def update_graph(data, dates, selected_grating, selected_cenwave, selected_segme
                 fig.add_traces(monitor.add_lines(monitor.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
                 fig.add_traces(monitor.add_lines(monitor.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [min(residual)-3, max(residual)+3], True), rows=2, cols=1)
             
+            # add more traces
             fig.add_trace(sens_err, row=2, col=1)
             fig.add_trace(best_fit_err, row=2, col=1)
-            fig.add_trace(best_fit, row=1, col=1)
-            fig.add_trace(curr_sens, row=1, col=1)
-            fig.add_trace(tds_model, row=1, col=1)
 
+            # update the y-axis based on what mode is being plotted
             fig.update_yaxes(range=(min(net[:,i])-0.2, max(net[:,i])+0.2), row=1, col=1),
             fig.update_yaxes(range=(min(residual)-3, max(residual)+3), row=2, col=1)
 
-    # add in the menu to the figure
+    # update the x-axes
     fig.update_xaxes(title_text='Date', range=(x[0]-0.1, x[-1]+0.1), row=2, col=1)
     fig.update_yaxes(title_text='Relative net count rate', row=1, col=1),
     fig.update_yaxes(title_text='Percent Difference', row=2, col=1)
@@ -311,6 +324,7 @@ def update_graph(data, dates, selected_grating, selected_cenwave, selected_segme
 
 ## ------- BUTTONS ------- ##
 ## ------- BUTTONS ------- ##
+# Gratings
 @callback(
     Output('gratings', 'options'),
     [Input('computed-results', 'data')])
@@ -325,6 +339,7 @@ def set_grating_options(data):
 def set_grating_value(available_options):
     return available_options[0]['value']
 
+# Cenwaves
 @callback(
     Output('cenwaves', 'options'),
     [Input('computed-results', 'data'),
@@ -340,14 +355,13 @@ def set_cenwave_options(data, selected_grating):
 def set_cenwave_value(available_options):
     return available_options[0]['value']
 
-
-
+# Segments
 @callback(
     Output('segments', 'options'),
     [Input('computed-results', 'data'),
      Input('gratings', 'value'),
      Input('cenwaves', 'value')])
-def set_cenwave_options(data, selected_grating, selected_cenwave):
+def set_segment_options(data, selected_grating, selected_cenwave):
     if data is None:
         return "No results available."
     df = pd.read_json(StringIO(data), orient='split')
@@ -358,23 +372,38 @@ def set_cenwave_options(data, selected_grating, selected_cenwave):
 def set_segment_value(available_options):
     return available_options[0]['value']
 
+# Sizes
+@callback(
+    Output('sizes', 'options'),
+    [Input('computed-results', 'data')])
+def set_size_options(data):
+    if data is None:
+        return "No results available."
+    return [{'label': 'Small', 'value': 'small'}, {'label': 'Large', 'value': 'large'}]
+@callback(
+    Output('sizes', 'value'),
+    [Input('sizes', 'options')])
+def set_size_value(available_options):
+    return available_options[0]['value']
 
+# Wavelength bins
 @callback(
     [Output('wavelength-bins', 'options'),
      Output('wavelength-bins', 'value')],
     [Input('computed-results', 'data'),
      Input('gratings', 'value'),
      Input('cenwaves', 'value'),
-     Input('segments', 'value')])
-def set_wavelength_options(data, selected_grating, selected_cenwave, selected_segment):
+     Input('segments', 'value'),
+     Input('sizes', 'value')])
+def set_wavelength_options(data, selected_grating, selected_cenwave, selected_segment, selected_size):
     if data is None:
         return "No results available."
     df = pd.read_json(StringIO(data), orient='split')
 
-    binned_wl = np.array([wl for wl in df['small_binned_wl'][(df['opt_elem'] == selected_grating) &
+    binned_wl = np.array([wl for wl in df[f'{selected_size}_binned_wl'][(df['opt_elem'] == selected_grating) &
                                                              (df['cenwave'] == selected_cenwave) &
                                                              (df['segment'] == selected_segment)]])
-    wl_edges  = np.array([wl for wl in df['small_wl_edges'][(df['opt_elem'] == selected_grating) &
+    wl_edges  = np.array([wl for wl in df[f'{selected_size}_wl_edges'][(df['opt_elem'] == selected_grating) &
                                                             (df['cenwave'] == selected_cenwave) &
                                                             (df['segment'] == selected_segment)]])
 
@@ -385,6 +414,7 @@ def set_wavelength_options(data, selected_grating, selected_cenwave, selected_se
                             'value': binned_wl[i][j]})
         value = binned_wl[i][0]
         return(options, value)
+## ------- BUTTONS ------- ##
 ## ------- BUTTONS ------- ##
 
 
