@@ -772,7 +772,7 @@ class FUVTDSMonitor(object):
             cleaned_data = ''.join([line for line in lines if '---' not in line])
 
             # turn into dataframe
-            df = pd.read_csv(StringIO(cleaned_data), delim_whitespace=True, comment='#')
+            df = pd.read_csv(StringIO(cleaned_data), sep="\s+", comment='#')
 
             # use fluxjulian to index
             df.index = pd.DatetimeIndex(df['fluxjulian'])

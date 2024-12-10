@@ -7,10 +7,13 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
 from io import StringIO
+from astropy.convolution import Box1DKernel, convolve
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = Dash(__name__, external_stylesheets=external_stylesheets)
+
+
 
 # i hope this works
 def generate_data(PIDs='fuvtds_analysis_list.dat'):
@@ -29,58 +32,76 @@ TDSTAB = '/grp/hst/cdbs/lref/83j20454l_tds.fits'
 #-------------------------------------------------------------------------------
 # Define the layout
 app.layout = html.Div(children=[
-    # Container for the overall layout
-    html.Div(children=[
-        # Container for the left side (Dropdowns)
-        html.Div(children=[
-            html.Button("Run Analysis", id="run-button", style={
-                'width': '150px',
-                'height': '50px',
-                'fontSize': '10px'
-            }),
-            dcc.Loading(
-                id="loading",
-                type="default",
-            ),
-            dcc.Store(id="computed-results"), # store for the computed results,
-            dcc.Store(id="dates"), # store for the computed results,
-            html.Br(),
+    dcc.Tabs(
+        parent_className='custom-tabs',
+        className='custom-tabs-container',
+        children = [
+        dcc.Tab(label='Relative Sensitivity', className='custom-tab', selected_className='custom-tab--selected', children=[
+            # Container for the overall layout
+            html.Div(children=[
+                # Container for the left side (Dropdowns)
+                html.Div(children=[
+                    html.Button("Run Analysis", id="run-button", style={
+                        'width': '150px',
+                        'height': '50px',
+                        'fontSize': '10px'
+                    }),
+                    dcc.Loading(
+                        id="loading",
+                        type="default",
+                    ),
+                    dcc.Store(id="computed-results"), # store for the computed results,
+                    dcc.Store(id="dates"), # store for the computed results,
+                    html.Br(),
 
-            html.Label('Grating'),
-            dcc.Dropdown(
-                id='gratings'),
-            html.Br(),
+                    html.Label('Grating'),
+                    dcc.Dropdown(
+                        id='gratings'),
+                    html.Br(),
 
-            html.Label('Cenwave'),
-            dcc.Dropdown(
-                id='cenwaves'
-            ),
-            html.Br(),
+                    html.Label('Cenwave'),
+                    dcc.Dropdown(
+                        id='cenwaves'
+                    ),
+                    html.Br(),
 
-            html.Label('Segment'),
-            dcc.Dropdown(id='segments'),
-            html.Br(),
+                    html.Label('Segment'),
+                    dcc.Dropdown(id='segments'),
+                    html.Br(),
 
-            html.Label('Size'),
-            dcc.Dropdown(id='sizes'),
+                    html.Label('Size'),
+                    dcc.Dropdown(id='sizes'),
 
-            html.Div(id='display-selected-values')
-        ], style={'width': '10%', 'display': 'inline-block'}),
+                    html.Div(id='display-selected-values')
+                ], style={'width': '10%', 'display': 'inline-block'}),
 
-        # Container for the plot in the middle
-        html.Div(children=[
-            dcc.Graph(id='relative-net')
-        ], style={'width': '75%', 'display': 'inline-block', 'vertical-align': 'top'}),
+                # Container for the plot in the middle
+                html.Div(children=[
+                    dcc.Graph(id='relative-net')
+                ], style={'width': '75%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
-        # Container for the right side (RadioItems)
-        html.Div(children=[
-            html.Label('Wavelength Bins'),
-            dcc.RadioItems(
-                id='wavelength-bins'
-            ),
-            html.Br()
-        ], style={'max-height': '300px', 'overflow-y': 'scroll', 'padding': '10px'})
-    ], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'space-between'}),  # Flexbox for layout
+                # Container for the right side (RadioItems)
+                html.Div(children=[
+                    html.Label('Wavelength Bins'),
+                    dcc.RadioItems(
+                        id='wavelength-bins'
+                    ),
+                    html.Br()
+                ], style={'max-height': '300px', 'overflow-y': 'scroll', 'padding': '10px'})
+            ], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'space-between'}),  # Flexbox for layout
+      ]),
+
+        # need to play around with the sizes of this of the solar plot
+      dcc.Tab(label='Solar Flux', className='custom-tab', selected_className='custom-tab--selected', children=[
+          # solar flux plot
+          dcc.Graph(id='solar-flux')  
+      ]),
+
+
+      dcc.Tab(label='Slope vs Time', className='custom-tab', selected_className='custom-tab--selected', children=[
+          dcc.Graph(id='time-slope')
+        ])  
+    ])
 ])
 
 ## ------- generate data ------- ##
@@ -110,7 +131,7 @@ def run_computation(n_clicks):
        Input('segments', 'value'),
        Input('sizes', 'value'),
        Input('wavelength-bins', 'value'))
-def update_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_size, selected_wl_bin):
+def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_size, selected_wl_bin):
     if data is None:
         fig = make_subplots(rows=2, cols=1,
                         shared_xaxes=True,
@@ -313,6 +334,120 @@ def update_graph(data, dates, selected_grating, selected_cenwave, selected_segme
     fig.update_layout(height=700)
 
     return (fig)
+
+
+## ------- PLOTS PLOTS PLOTS ------- ##
+@callback(
+       Output('solar-flux', 'figure'),
+       Input('computed-results', 'data'),
+       Input('dates', 'data'))
+def update_solar_flux_graph(data, dates):
+    if data is None:
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        return fig
+    
+    # !!! grab necessary data !!!
+    # read in the fuv tds data as a dataframe
+    df = pd.read_json(StringIO(data), orient='split')
+
+    # establish the functions necessary for the analysis
+    monitor = FUVTDSMonitor(dates)
+
+    # get the solar flux data as a dataframe
+    solar = monitor.get_solar_data()
+
+
+    # !!! Plot the solar flux from dataframe, both smoothed and unsmoothed
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    unsmoothed = go.Scatter(x = solar['date'],
+                            y = solar['f10.7'],
+                            line_shape='linear',
+                            line=dict(color='royalblue', width=4),
+                            name='10.7 cm radio flux',
+                            opacity=0.5)
+    smoothed = go.Scatter(x = solar['date'],
+                            y = convolve(solar['f10.7'], Box1DKernel(150), boundary='extend'),
+                            line_shape='linear',
+                            line=dict(color='firebrick', width=2),
+                            name='Smoothed 10.7 cm radio flux',
+                            opacity=0.6)
+    
+    # differentiate the A seg from B seg
+    marker_type = {'FUVA': 'circle', 'FUVB': 'x'}
+
+    # plot the fractional throughput
+    for cenwave in df['cenwave'].unique():
+        for segment in df['segment'][df['cenwave'] == cenwave].unique():
+
+            sub_df = df[
+                (df['cenwave'] == cenwave) & 
+                (df['segment'] == segment)]
+            # scale to one for large bins (always been large bins)
+            scaled_df = monitor.scale_to_1(table=sub_df, size='large')
+
+            grating = sub_df['opt_elem'].iloc[0]
+            date = np.array(sub_df['date-obs']).flatten()
+            net = np.array([net for net in scaled_df['large_scaled_net'].iloc[0]])
+
+            # Fractional throughput, loop over all monitored modes
+            frac_throughput = go.Scatter(
+                x = date,
+                y = net[:,0],
+                mode='markers',
+                marker_symbol=marker_type[segment],
+                name=f'{grating}/{cenwave}/{segment}',
+                customdata = np.stack(
+                    (sub_df['rootname'],
+                     sub_df['life_adj'],
+                     sub_df['proposid'],
+                     sub_df['targname']),
+                     axis=-1
+                ),
+                hovertemplate=
+                'Rootname: %{customdata[0]}<br>'+
+                'Life_adj: %{customdata[1]}<br>'+
+                'Proposid: %{customdata[2]}<br>'+
+                'Target: %{customdata[3]}'
+                "<extra></extra>"
+            )
+
+            # add trace to plot
+            fig.add_trace(frac_throughput, secondary_y=False)
+    
+    # add solar flux smoothed and unsmoothed to plot based off secondary_y
+    fig.add_trace(unsmoothed, secondary_y=True)
+    fig.add_trace(smoothed, secondary_y=True)
+
+    # add vertical lines
+    fig.add_traces(monitor.add_lines(monitor.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [0, 1.2]))
+    fig.add_traces(monitor.add_lines(monitor.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch', [0, 1.2]))
+    fig.add_traces(monitor.add_lines(monitor.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA', [0, 1.2]))
+    fig.add_traces(monitor.add_lines(monitor.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [0, 1.2]))
+
+    # add title
+    fig.update_layout(title_text="TDS Solar Flux", height=700)
+
+    # set x-axis title
+    fig.update_xaxes(title_text="Date", range=(min(solar['date']), max(solar['date'])))
+
+    # set y-axis titles
+    fig.update_yaxes(title_text="Fractional Throughput", range=(0.0, 1.1), secondary_y=False)
+    fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
+    
+    return (fig)
+
+## ------- PLOTS PLOTS PLOTS ------- ##
+@callback(
+       Output('time-slope', 'figure'),
+       Input('computed-results', 'data'),
+       Input('dates', 'data'))
+def update_solar_flux_graph(data, dates):
+    if data is None:
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        return fig
+
+
 
 
 ## ------- PLOTS PLOTS PLOTS ------- ##
