@@ -862,7 +862,7 @@ class FUVTDSMonitor(object):
         # If there is an even amount of parameters (as there should), do the the fit
         elif not len(p) % 2:
 
-            # Removees the intercept and the slope (first two elements in p0) and 
+            # Removes the intercept and the slope (first two elements in p0) and 
             # counts the number of breakpoints we are working with
             n_bp = int((len(p) - 2) // 2)
 

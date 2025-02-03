@@ -100,7 +100,8 @@ app.layout = html.Div(children=[
 
       dcc.Tab(label='Slope vs Time', className='custom-tab', selected_className='custom-tab--selected', children=[
           dcc.Graph(id='time-slope')
-        ])  
+        ])
+
     ])
 ])
 
@@ -209,7 +210,7 @@ def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selec
             x = np.append(x, date[-1])
             best_fit = go.Scatter(
                 x = x,
-                y =monitor.broken_lines(x - monitor.reftime, *best_fit_model[i,:]),
+                y = monitor.broken_lines(x - monitor.reftime, *best_fit_model[i,:]),
                 name = 'Best Fit',
                 line = dict(color='grey', width=4, dash='dash')
             )
@@ -442,10 +443,73 @@ def update_solar_flux_graph(data, dates):
        Output('time-slope', 'figure'),
        Input('computed-results', 'data'),
        Input('dates', 'data'))
-def update_solar_flux_graph(data, dates):
+def update_time_slope_graph(data, dates):
+
+    size = 'small'
     if data is None:
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig = go.Figure()
         return fig
+    
+    # !!! grab necessary data !!!
+    # read in the fuv tds data as a dataframe
+    df = pd.read_json(StringIO(data), orient='split')
+
+    # establish the functions necessary for the analysis
+    monitor = FUVTDSMonitor(dates)
+
+    # Establish plot
+    fig = go.Figure()
+
+    # Differentiate symbols - might be a better way to do this?
+    marker_type = {'G140L': {'FUVA': 'open-square', 'FUVB': 'square'},
+                   'G130M': {'FUVA': 'open-circle', 'FUVB': 'circle'},
+                   'G160M': {'FUVA': 'open-triangle', 'FUVB': 'triangle'}}
+    color_type = {'G140L': 'red',
+                  'G130M': 'blue',
+                  'G140L': 'teal'}
+    
+    # plot the slope vs time ; reference off broken lines from base class
+    for cenwave in df['cenwave'].unique():
+        for segment in df['segment'][df['cenwave'] == cenwave].unique():
+
+            sub_df = df[
+                (df['cenwave'] == cenwave) & 
+                (df['segment'] == segment)]
+            
+            # scale to one 
+            scaled_df = monitor.scale_to_1(table=sub_df, size=size)
+            binned_wl = np.array([wl for wl in sub_df[f'{size}_binned_wl']])[0]
+            best_fit_model = np.array([net for net in scaled_df[f'{size}_best_fit'].iloc[0]])
+            best_fit_model_err = np.array([net for net in scaled_df[f'{size}_best_fit_err'].iloc[0]])
+
+            grating = sub_df['opt_elem'].iloc[0]
+
+            print(cenwave, segment)
+
+            n_bp = len(best_fit_model[0])//2
+
+            for j in range(0, n_bp):
+                slopes = best_fit_model[:,2+j+1]
+                slopes_err = best_fit_model_err[:,2+j+1]
+                
+                med = np.median(slopes)
+                med_err = np.median(slopes_err)
+
+                indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
+
+                if np.any(indx): # if no points less than 3 sigma
+                    print('check 1')
+                    med = np.median(slopes[slopes < 0])
+                    indx = np.where(slopes <= 15)
+
+                    print(binned_wl[indx], slopes[indx], slopes_err[indx])
+                
+                else:
+                    print('check 2')
+                    print(binned_wl[indx], slopes[indx])
+            
+            
+
 
 
 
