@@ -195,9 +195,9 @@ def plot(df):
 if __name__ == "__main__":
     """
     """
-    ref = {'PID': 17326,
-           'visit': '9a'}
-    new = {'PID': 17624,
+    ref = {'PID': 17624,
            'visit': '1a'}
+    new = {'PID': 17624,
+           'visit': '2a'}
     
     plot_compare(ref, new)
