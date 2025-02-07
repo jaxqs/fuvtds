@@ -99,7 +99,32 @@ app.layout = html.Div(children=[
 
 
       dcc.Tab(label='Slope vs Time', className='custom-tab', selected_className='custom-tab--selected', children=[
-          dcc.Graph(id='time-slope')
+          # Container for the left side (Dropdowns)
+            html.Div(children=[
+                html.Label('Grating'),
+                dcc.Dropdown(
+                    id='gratings'),
+                html.Br(),
+
+                html.Label('Cenwave'),
+                dcc.Dropdown(
+                    id='cenwaves'
+                ),
+                html.Br(),
+
+                html.Label('Segment'),
+                dcc.Dropdown(id='segments'),
+                html.Br(),
+
+                html.Label('Size'),
+                dcc.Dropdown(id='sizes'),
+
+                html.Div(id='display-selected-values')
+            ], style={'width': '10%', 'display': 'inline-block'}),
+            # Container for the plot in the middle
+            html.Div(children=[
+                dcc.Graph(id='time-slope')
+            ], style={'width': '75%', 'display': 'inline-block', 'vertical-align': 'top'})
         ])
 
     ])
@@ -442,10 +467,14 @@ def update_solar_flux_graph(data, dates):
 @callback(
        Output('time-slope', 'figure'),
        Input('computed-results', 'data'),
-       Input('dates', 'data'))
-def update_time_slope_graph(data, dates):
+       Input('dates', 'data'),
+       Input('gratings', 'value'),
+       Input('cenwaves', 'value'),
+       Input('segments', 'value'),
+       Input('sizes', 'value'))
+def update_time_slope_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_size):
 
-    size = 'small'
+    size = selected_size
     if data is None:
         fig = go.Figure()
         return fig
@@ -469,44 +498,57 @@ def update_time_slope_graph(data, dates):
                   'G140L': 'teal'}
     
     # plot the slope vs time ; reference off broken lines from base class
-    for cenwave in df['cenwave'].unique():
-        for segment in df['segment'][df['cenwave'] == cenwave].unique():
+    df = df[
+        (df['opt_elem'] == selected_grating) &
+        (df['cenwave'] == selected_cenwave) & 
+        (df['segment'] == selected_segment)]
+    
+    # scale to one 
+    scaled_df = monitor.scale_to_1(table=df, size=size)
+    binned_wl = np.array([wl for wl in df[f'{size}_binned_wl']])[0]
+    best_fit_model = np.array([net for net in scaled_df[f'{size}_best_fit'].iloc[0]])
+    best_fit_model_err = np.array([net for net in scaled_df[f'{size}_best_fit_err'].iloc[0]])
 
-            sub_df = df[
-                (df['cenwave'] == cenwave) & 
-                (df['segment'] == segment)]
+    print(selected_cenwave, selected_segment)
+
+    n_bp = len(best_fit_model[0])//2 # number of breakpoints
+
+    for j in range(0, n_bp):
+        slopes = best_fit_model[:,2+j+1]
+        slopes_err = best_fit_model_err[:,2+j+1]
+        
+        med = np.median(slopes)
+        med_err = np.median(slopes_err)
+
+        indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
+
+        if np.any(indx): # if no points less than 3 sigma
+            med = np.median(slopes[slopes < 0])
+            indx = np.where(slopes <= 15)
+
+            if len(binned_wl) <= 2: 
+                trace = go.Scatter(
+                    x = binned_wl,
+                    y = slopes*100.0,
+                    error_y = dict(type='data', array=slopes_err, visible=True),
+                    color = color_type[selected_grating],
+                    marker_symbol=marker_type[selected_grating][selected_segment]
+                )
             
-            # scale to one 
-            scaled_df = monitor.scale_to_1(table=sub_df, size=size)
-            binned_wl = np.array([wl for wl in sub_df[f'{size}_binned_wl']])[0]
-            best_fit_model = np.array([net for net in scaled_df[f'{size}_best_fit'].iloc[0]])
-            best_fit_model_err = np.array([net for net in scaled_df[f'{size}_best_fit_err'].iloc[0]])
+            else:
+                trace = go.Scatter(
+                    x = binned_wl[indx],
+                    y = slopes[indx]*100.0,
+                    error_y = dict(type='data', array=slopes_err[indx], visible=True),
+                    color = color_type[selected_grating],
+                    marker_symbol=marker_type[selected_grating][selected_segment]
+                )
+        
+        else:
+            print('check 2')
+            print(selected_cenwave, selected_segment, binned_wl[indx], slopes[indx])
 
-            grating = sub_df['opt_elem'].iloc[0]
-
-            print(cenwave, segment)
-
-            n_bp = len(best_fit_model[0])//2
-
-            for j in range(0, n_bp):
-                slopes = best_fit_model[:,2+j+1]
-                slopes_err = best_fit_model_err[:,2+j+1]
-                
-                med = np.median(slopes)
-                med_err = np.median(slopes_err)
-
-                indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
-
-                if np.any(indx): # if no points less than 3 sigma
-                    print('check 1')
-                    med = np.median(slopes[slopes < 0])
-                    indx = np.where(slopes <= 15)
-
-                    print(binned_wl[indx], slopes[indx], slopes_err[indx])
-                
-                else:
-                    print('check 2')
-                    print(binned_wl[indx], slopes[indx])
+    return fig
             
             
 
