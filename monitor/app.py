@@ -32,102 +32,144 @@ TDSTAB = '/grp/hst/cdbs/lref/83j20454l_tds.fits'
 #-------------------------------------------------------------------------------
 # Define the layout
 app.layout = html.Div(children=[
+    # Container for the labels, dropdowns, and button (on top of the tabs)
+    html.Div(children=[
+        # Grating Dropdown
+        html.Div(children=[
+            html.Label('Grating', style={
+                'display': 'block',
+                'textAlign': 'center',
+            }),
+            dcc.Dropdown(
+                id='gratings', style={
+                    'display': 'block',
+                    'width': '80%',
+                    'margin': '0 auto'
+                }
+            ),
+        ], style={'width': '20%', 'textAlign': 'center'}),
+
+        # Cenwave Dropdown
+        html.Div(children=[
+            html.Label('Cenwave', style={
+                'display': 'block',
+                'textAlign': 'center',
+            }),
+            dcc.Dropdown(
+                id='cenwaves', style={
+                    'display': 'block',
+                    'width': '80%',
+                    'margin': '0 auto'
+                }
+            ),
+        ], style={'width': '20%', 'textAlign': 'center'}),  
+
+        # Segment Dropdown
+        html.Div(children=[
+            html.Label('Segment', style={
+                'display': 'block',
+                'textAlign': 'center',
+            }),
+            dcc.Dropdown(
+                id='segments', style={
+                    'display': 'block',
+                    'width': '80%',
+                    'margin': '0 auto'
+                }
+            ),
+        ], style={'width': '20%', 'textAlign': 'center'}),  
+
+        # Size Dropdown
+        html.Div(children=[
+            html.Label('Size', style={
+                'display': 'block',
+                'textAlign': 'center',
+            }),
+            dcc.Dropdown(
+                id='sizes', style={
+                    'display': 'block',
+                    'width': '80%',
+                    'margin': '0 auto'
+                }
+            ),
+        ], style={'width': '20%', 'textAlign': 'center'}),
+
+        # Run Button
+        html.Div(children=[
+            html.Button("Run Analysis", id="run-button", style={
+                'width': '100%',
+                'height': '50px',
+                'fontSize': '10px',
+            }),
+            dcc.Loading(id="loading", type="default"),
+            dcc.Store(id="computed-results"),
+            dcc.Store(id="dates"),
+        ], style={'width': '20%', 'textAlign': 'center'}),
+        
+    ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}),
+
+    # Space between the dropdowns and the tabs
+    html.Br(),
+
+    # Tabs container
     dcc.Tabs(
         parent_className='custom-tabs',
         className='custom-tabs-container',
-        children = [
-        dcc.Tab(label='Relative Sensitivity', className='custom-tab', selected_className='custom-tab--selected', children=[
-            # Container for the overall layout
-            html.Div(children=[
-                # Container for the left side (Dropdowns)
-                html.Div(children=[
-                    html.Button("Run Analysis", id="run-button", style={
-                        'width': '150px',
-                        'height': '50px',
-                        'fontSize': '10px'
-                    }),
-                    dcc.Loading(
-                        id="loading",
-                        type="default",
-                    ),
-                    dcc.Store(id="computed-results"), # store for the computed results,
-                    dcc.Store(id="dates"), # store for the computed results,
-                    html.Br(),
+        children=[
+            dcc.Tab(
+                label='Relative Sensitivity',
+                className='custom-tab',
+                selected_className='custom-tab--selected',
+                children=[
+                    html.Div(children=[
+                        # Container for the plot in the middle
+                        html.Div(children=[
+                            dcc.Graph(id='relative-net', style={'height': '700px'})
+                        ], style={'width': '85%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
-                    html.Label('Grating'),
-                    dcc.Dropdown(
-                        id='gratings'),
-                    html.Br(),
+                        # Container for the right side (RadioItems)
+                        html.Div(children=[
+                            html.Label('Wavelength Bins'),
+                            dcc.RadioItems(
+                                id='wavelength-bins'
+                            ),
+                            html.Br()
+                        ], style={'max-height': '300px', 'overflow-y': 'scroll', 'padding': '10px'})
+                    ], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'space-between'}),  # Flexbox for layout
+                ]
+            ),
+            dcc.Tab(
+                label='Solar Flux',
+                className='custom-tab',
+                selected_className='custom-tab--selected',
+                children=[
+                    dcc.Graph(id='solar-flux', style={'height': '700px'})
+                ]
+            ),
+            dcc.Tab(
+                label='Slope vs Time',
+                className='custom-tab',
+                selected_className='custom-tab--selected',
+                children=[
+                    html.Div(children=[
+                        # Container for the plot in the middle
+                        html.Div(children=[
+                            dcc.Graph(id='time-slope', style={'height': '700px'})
+                        ], style={'width': '85%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
-                    html.Label('Cenwave'),
-                    dcc.Dropdown(
-                        id='cenwaves'
-                    ),
-                    html.Br(),
-
-                    html.Label('Segment'),
-                    dcc.Dropdown(id='segments'),
-                    html.Br(),
-
-                    html.Label('Size'),
-                    dcc.Dropdown(id='sizes'),
-
-                    html.Div(id='display-selected-values')
-                ], style={'width': '10%', 'display': 'inline-block'}),
-
-                # Container for the plot in the middle
-                html.Div(children=[
-                    dcc.Graph(id='relative-net')
-                ], style={'width': '75%', 'display': 'inline-block', 'vertical-align': 'top'}),
-
-                # Container for the right side (RadioItems)
-                html.Div(children=[
-                    html.Label('Wavelength Bins'),
-                    dcc.RadioItems(
-                        id='wavelength-bins'
-                    ),
-                    html.Br()
-                ], style={'max-height': '300px', 'overflow-y': 'scroll', 'padding': '10px'})
-            ], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'space-between'}),  # Flexbox for layout
-      ]),
-
-        # need to play around with the sizes of this of the solar plot
-      dcc.Tab(label='Solar Flux', className='custom-tab', selected_className='custom-tab--selected', children=[
-          # solar flux plot
-          dcc.Graph(id='solar-flux')  
-      ]),
-
-
-      dcc.Tab(label='Slope vs Time', className='custom-tab', selected_className='custom-tab--selected', children=[
-          # Container for the left side (Dropdowns)
-            html.Div(children=[
-                html.Label('Grating'),
-                dcc.Dropdown(
-                    id='gratings'),
-                html.Br(),
-
-                html.Label('Cenwave'),
-                dcc.Dropdown(
-                    id='cenwaves'
-                ),
-                html.Br(),
-
-                html.Label('Segment'),
-                dcc.Dropdown(id='segments'),
-                html.Br(),
-
-                html.Label('Size'),
-                dcc.Dropdown(id='sizes'),
-
-                html.Div(id='display-selected-values')
-            ], style={'width': '10%', 'display': 'inline-block'}),
-            # Container for the plot in the middle
-            html.Div(children=[
-                dcc.Graph(id='time-slope')
-            ], style={'width': '75%', 'display': 'inline-block', 'vertical-align': 'top'})
-        ])
-
-    ])
+                        # Container for the right side (RadioItems)
+                        html.Div(children=[
+                            html.Label('Time bins'),
+                            dcc.RadioItems(
+                                id='timebins'
+                            ),
+                            html.Br()
+                        ], style={'max-height': '300px', 'overflow-y': 'scroll', 'padding': '10px'})
+                    ], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'space-between'}),  # Flexbox for layout
+                ]
+            )
+        ]
+    )
 ])
 
 ## ------- generate data ------- ##
@@ -357,7 +399,7 @@ def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selec
     fig.update_yaxes(title_text='Relative net count rate', row=1, col=1),
     fig.update_yaxes(title_text='Percent Difference', row=2, col=1)
 
-    fig.update_layout(height=700)
+    #fig.update_layout(height=700)
 
     return (fig)
 
@@ -468,13 +510,10 @@ def update_solar_flux_graph(data, dates):
        Output('time-slope', 'figure'),
        Input('computed-results', 'data'),
        Input('dates', 'data'),
-       Input('gratings', 'value'),
-       Input('cenwaves', 'value'),
-       Input('segments', 'value'),
-       Input('sizes', 'value'))
-def update_time_slope_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_size):
+       Input('sizes', 'value'),
+       Input('timebins', 'value'))
+def update_time_slope_graph(data, dates, selected_size, selected_time_bin):
 
-    size = selected_size
     if data is None:
         fig = go.Figure()
         return fig
@@ -490,72 +529,131 @@ def update_time_slope_graph(data, dates, selected_grating, selected_cenwave, sel
     fig = go.Figure()
 
     # Differentiate symbols - might be a better way to do this?
-    marker_type = {'G140L': {'FUVA': 'open-square', 'FUVB': 'square'},
-                   'G130M': {'FUVA': 'open-circle', 'FUVB': 'circle'},
-                   'G160M': {'FUVA': 'open-triangle', 'FUVB': 'triangle'}}
+    marker_type = {'G140L': {'FUVA': 'square-open', 'FUVB': 'square'},
+                   'G130M': {'FUVA': 'circle-open', 'FUVB': 'circle'},
+                   'G160M': {'FUVA': 'triangle-up-open', 'FUVB': 'triangle-up'}}
     color_type = {'G140L': 'red',
                   'G130M': 'blue',
-                  'G140L': 'teal'}
+                  'G160M': 'teal'}
+    counter_mode = {'G140L': {'FUVA': 0, 'FUVB': 0},
+                   'G130M': {'FUVA': 0, 'FUVB': 0},
+                   'G160M': {'FUVA': 0, 'FUVB': 0}}
     
-    # plot the slope vs time ; reference off broken lines from base class
-    df = df[
-        (df['opt_elem'] == selected_grating) &
-        (df['cenwave'] == selected_cenwave) & 
-        (df['segment'] == selected_segment)]
-    
-    # scale to one 
-    scaled_df = monitor.scale_to_1(table=df, size=size)
-    binned_wl = np.array([wl for wl in df[f'{size}_binned_wl']])[0]
-    best_fit_model = np.array([net for net in scaled_df[f'{size}_best_fit'].iloc[0]])
-    best_fit_model_err = np.array([net for net in scaled_df[f'{size}_best_fit_err'].iloc[0]])
+    for cenwave in df['cenwave'].unique():
+        for segment in df['segment'][df['cenwave'] == cenwave].unique():
 
-    print(selected_cenwave, selected_segment)
+            sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
+            grating = sub_df['opt_elem'].iloc[0]
 
-    n_bp = len(best_fit_model[0])//2 # number of breakpoints
+            # scale to one 
+            scaled_df = monitor.scale_to_1(table=sub_df, size=selected_size)
+            binned_wl = np.array([wl for wl in sub_df[f'{selected_size}_binned_wl']])[0]
 
-    for j in range(0, n_bp):
-        slopes = best_fit_model[:,2+j+1]
-        slopes_err = best_fit_model_err[:,2+j+1]
-        
-        med = np.median(slopes)
-        med_err = np.median(slopes_err)
+            best_fit_model = np.array([net for net in scaled_df[f'{selected_size}_best_fit'].iloc[0]])
+            best_fit_model_err = np.array([net for net in scaled_df[f'{selected_size}_best_fit_err'].iloc[0]])
 
-        indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
+            slopes = best_fit_model[:,selected_time_bin*2+1]
+            slopes_err = best_fit_model_err[:,selected_time_bin*2+1]
+            
+            med = np.median(slopes)
+            med_err = np.median(slopes_err)
 
-        if np.any(indx): # if no points less than 3 sigma
-            med = np.median(slopes[slopes < 0])
-            indx = np.where(slopes <= 15)
+            indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
 
-            if len(binned_wl) <= 2: 
-                trace = go.Scatter(
-                    x = binned_wl,
-                    y = slopes*100.0,
-                    error_y = dict(type='data', array=slopes_err, visible=True),
-                    color = color_type[selected_grating],
-                    marker_symbol=marker_type[selected_grating][selected_segment]
-                )
+            if np.any(indx): # if no points less than 3 sigma
+
+                med = np.median(slopes[slopes < 0])
+                indx = np.where(slopes <= 15)
+
+                if len(binned_wl) <= 2: 
+
+                    if counter_mode[grating][segment] == 0:
+                        trace = go.Scatter(
+                            x = binned_wl,
+                            y = slopes*100.0,
+                            error_y = dict(type='data', array=slopes_err*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}'
+                        )
+                        counter_mode[grating][segment] = 1
+                    else:
+                        trace = go.Scatter(
+                            x = binned_wl,
+                            y = slopes*100.0,
+                            error_y = dict(type='data', array=slopes_err*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}',
+                            showlegend=False
+                        )
+
+                    fig.add_trace(trace)
+                
+                else:
+                    if counter_mode[grating][segment] == 0:
+                        trace = go.Scatter(
+                            x = binned_wl[indx],
+                            y = slopes[indx]*100.0,
+                            error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}'
+                        )
+                        counter_mode[grating][segment] = 1
+                    else:
+                        trace = go.Scatter(
+                            x = binned_wl[indx],
+                            y = slopes[indx]*100.0,
+                            error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}',
+                            showlegend=False
+                        )
+
+                    fig.add_trace(trace)
             
             else:
-                trace = go.Scatter(
-                    x = binned_wl[indx],
-                    y = slopes[indx]*100.0,
-                    error_y = dict(type='data', array=slopes_err[indx], visible=True),
-                    color = color_type[selected_grating],
-                    marker_symbol=marker_type[selected_grating][selected_segment]
-                )
-        
-        else:
-            print('check 2')
-            print(selected_cenwave, selected_segment, binned_wl[indx], slopes[indx])
+                if counter_mode[grating][segment] == 0:
+                    trace = go.Scatter(
+                        x = binned_wl[indx],
+                        y = slopes[indx]*100.0,
+                        error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                        line_color = color_type[grating],
+                        marker_symbol=marker_type[grating][segment],
+                        mode='markers',
+                        name=f'{grating}/{segment}',
+                        legendgroup=f'{grating}/{segment}'
+                    )
+                    counter_mode[grating][segment] = 1
+                else:
+                    trace = go.Scatter(
+                        x = binned_wl[indx],
+                        y = slopes[indx]*100.0,
+                        error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                        line_color = color_type[grating],
+                        marker_symbol=marker_type[grating][segment],
+                        mode='markers',
+                        name=f'{grating}/{segment}',
+                        legendgroup=f'{grating}/{segment}',
+                        showlegend=False
+                    )
 
+                fig.add_trace(trace)
+
+    fig.update_layout(title_text="Slope vs Wavelength")
+    fig.update_xaxes(title_text="Wavelength (Å)")
+    fig.update_yaxes(title_text="Slope (%/yr)", range=(-20, 5))
     return fig
-            
-            
-
-
-
-
-
 ## ------- PLOTS PLOTS PLOTS ------- ##
 ## ------- PLOTS PLOTS PLOTS ------- ##
 
@@ -655,6 +753,32 @@ def set_wavelength_options(data, selected_grating, selected_cenwave, selected_se
                             'value': binned_wl[i][j]})
         value = binned_wl[i][0]
         return(options, value)
+
+# Timebins
+@callback(
+    [Output('timebins', 'options'),
+     Output('timebins', 'value')],
+    [Input('computed-results', 'data'),
+     Input('dates', 'data')])
+def set_timebin_options(data, dates):
+    if data is None:
+        return "No results available."
+    # establish the functions necessary for the analysis
+    monitor = FUVTDSMonitor(dates)
+
+
+    options = []
+    for i, bp in enumerate(monitor.breakpoints):
+
+        if i == 0:
+            options.append({'label': f't < {bp}', 'value': 0})
+        elif i == len(monitor.breakpoints)-1:
+            options.append({'label': f'{bp} < t', 'value': len(monitor.breakpoints)-1})
+        else:
+            options.append({'label': f'{monitor.breakpoints[i-1]} < t < {bp}', 'value': i})
+
+    value = 0
+    return(options, value)
 ## ------- BUTTONS ------- ##
 ## ------- BUTTONS ------- ##
 
