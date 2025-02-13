@@ -772,7 +772,7 @@ class FUVTDSMonitor(object):
             cleaned_data = ''.join([line for line in lines if '---' not in line])
 
             # turn into dataframe
-            df = pd.read_csv(StringIO(cleaned_data), delim_whitespace=True, comment='#')
+            df = pd.read_csv(StringIO(cleaned_data), sep="\s+", comment='#')
 
             # use fluxjulian to index
             df.index = pd.DatetimeIndex(df['fluxjulian'])
@@ -862,7 +862,7 @@ class FUVTDSMonitor(object):
         # If there is an even amount of parameters (as there should), do the the fit
         elif not len(p) % 2:
 
-            # Removees the intercept and the slope (first two elements in p0) and 
+            # Removes the intercept and the slope (first two elements in p0) and 
             # counts the number of breakpoints we are working with
             n_bp = int((len(p) - 2) // 2)
 
