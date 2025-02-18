@@ -399,8 +399,6 @@ def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selec
     fig.update_yaxes(title_text='Relative net count rate', row=1, col=1),
     fig.update_yaxes(title_text='Percent Difference', row=2, col=1)
 
-    #fig.update_layout(height=700)
-
     return (fig)
 
 
@@ -766,7 +764,7 @@ def set_timebin_options(data, dates):
     # establish the functions necessary for the analysis
     monitor = FUVTDSMonitor(dates)
 
-
+    # populate the option dictionary for the different time bins
     options = []
     for i, bp in enumerate(monitor.breakpoints):
 
