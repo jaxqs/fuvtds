@@ -13,9 +13,7 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 
-
-
-# i hope this works
+# this generates the data needed to run monitor
 def generate_data(PIDs='fuvtds_analysis_list.dat'):
     fuvtds = FUVTDSBase(PIDs=PIDs)
     df = fuvtds.tables
@@ -124,6 +122,8 @@ app.layout = html.Div(children=[
                     html.Div(children=[
                         # Container for the plot in the middle
                         html.Div(children=[
+                            html.Button("Download Throughput", id='btn_csv'),
+                            dcc.Download(id='large-thruput'),
                             dcc.Graph(id='relative-net', style={'height': '700px'})
                         ], style={'width': '85%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
@@ -143,6 +143,8 @@ app.layout = html.Div(children=[
                 className='custom-tab',
                 selected_className='custom-tab--selected',
                 children=[
+                    html.Button("Save as HTML", id='save-solar-flux'),
+                    dcc.Download(id='solar-flux-html'),
                     dcc.Graph(id='solar-flux', style={'height': '700px'})
                 ]
             ),
@@ -154,6 +156,8 @@ app.layout = html.Div(children=[
                     html.Div(children=[
                         # Container for the plot in the middle
                         html.Div(children=[
+                            html.Button("Save as HTML", id='save-time-slope'),
+                            dcc.Download('time-slope-html'),
                             dcc.Graph(id='time-slope', style={'height': '700px'})
                         ], style={'width': '85%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
@@ -500,8 +504,8 @@ def update_solar_flux_graph(data, dates):
     # set y-axis titles
     fig.update_yaxes(title_text="Fractional Throughput", range=(0.0, 1.1), secondary_y=False)
     fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
-    
-    return (fig)
+
+    return fig
 
 ## ------- PLOTS PLOTS PLOTS ------- ##
 @callback(
@@ -657,6 +661,238 @@ def update_time_slope_graph(data, dates, selected_size, selected_time_bin):
 
 
 
+## ------- SAVING METHODS ------- ##
+## ------- SAVING METHODS ------- ##
+# Saving Large Throughput -- as csv
+@callback(
+        Output('large-thruput', 'data'),
+        Input('btn_csv', 'n_clicks'),
+        Input('computed-results', 'data'),
+        Input('dates', 'data'))
+def save_large_thruput(n_clicks, data, dates):
+    if n_clicks is None:
+        return dash.no_update
+    if data is None:
+        print('run analysis')
+    
+    df = pd.read_json(StringIO(data), orient='split')
+
+    tables = []
+
+    # establish the functions necessary for the analysis
+    monitor = FUVTDSMonitor(dates)
+    for cenwave in df['cenwave'].unique():
+        for segment in df['segment'][df['cenwave'] == cenwave].unique():
+            sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
+            scaled_df = monitor.scale_to_1(table=sub_df, size='large') # scale to one
+
+            # This with statement is to remove the false positivie error in doing this process
+            with pd.option_context("mode.copy_on_write", True):
+                # change scaled net count to a format we can use
+                sub_df.loc[:,'relative_throughput'] = np.array([net for net in scaled_df.loc[0, 'large_scaled_net']])
+                sub_df.loc[:,'relative_throughput_err'] = np.array([net for net in scaled_df.loc[0,'large_scaled_stdev']])
+
+            # combine the relevant table columns to make a new table
+            combined_df = pd.concat([sub_df['opt_elem'], 
+                                     sub_df['cenwave'],
+                                     sub_df['segment'],
+                                     sub_df['date-obs'].round(2),
+                                     sub_df['relative_throughput'],
+                                     sub_df['relative_throughput_err']],
+                                     axis=1)
+
+            tables.append(combined_df)
+    
+    df = pd.concat(tables)
+            
+    # save the csv -- maybe put in a date function for the name?
+    return dcc.send_data_frame(df.to_csv, 'test_large_thruput.csv', index=False)
+
+## ------- SAVING METHODS ------- ##
+# save html files!!! save the solar flux
+@callback(
+    Output('solar-flux-html', 'data'),
+    Input('save-solar-flux', 'n_clicks'),
+    Input('solar-flux', 'figure')
+)
+def save_figure_as_html(n_clicks, figure):
+    if n_clicks:
+         # Convert the figure to HTML
+        fig = go.Figure(figure)
+        html_str = fig.to_html(full_html=False)
+
+        # Trigger the download
+        return dict(content=html_str, filename="test_solar_flux.html")
+
+## ------- SAVING METHODS ------- ##
+# save the time slope vs wavelength plots
+@callback(
+    Output('time-slope-html', 'data'),
+    Input('save-time-slope', 'n_clicks'),
+    Input('computed-results', 'data'),
+    Input('dates', 'data'),
+    Input('sizes', 'value')
+)
+def save_time_slope_as_html(n_clicks, data, dates, selected_size):
+
+    if n_clicks is None:
+        return dash.no_update
+    if data is None:
+        fig = go.Figure()
+        return fig
+    
+    # !!! grab necessary data !!!
+    # read in the fuv tds data as a dataframe
+    df = pd.read_json(StringIO(data), orient='split')
+
+    # establish the functions necessary for the analysis
+    monitor = FUVTDSMonitor(dates)
+
+
+    # Differentiate symbols - might be a better way to do this?
+    marker_type = {'G140L': {'FUVA': 'square-open', 'FUVB': 'square'},
+                   'G130M': {'FUVA': 'circle-open', 'FUVB': 'circle'},
+                   'G160M': {'FUVA': 'triangle-up-open', 'FUVB': 'triangle-up'}}
+    color_type = {'G140L': 'red',
+                  'G130M': 'blue',
+                  'G160M': 'teal'}
+    counter_mode = {'G140L': {'FUVA': 0, 'FUVB': 0},
+                   'G130M': {'FUVA': 0, 'FUVB': 0},
+                   'G160M': {'FUVA': 0, 'FUVB': 0}}
+    
+
+    
+    fig = make_subplots(rows=len(monitor.breakpoints), cols=1)
+
+
+    for i, bp in enumerate(monitor.breakpoints):
+        for cenwave in df['cenwave'].unique():
+            for segment in df['segment'][df['cenwave'] == cenwave].unique():
+
+                sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
+                grating = sub_df['opt_elem'].iloc[0]
+
+                # scale to one 
+                scaled_df = monitor.scale_to_1(table=sub_df, size=selected_size)
+                binned_wl = np.array([wl for wl in sub_df[f'{selected_size}_binned_wl']])[0]
+
+                best_fit_model = np.array([net for net in scaled_df[f'{selected_size}_best_fit'].iloc[0]])
+                best_fit_model_err = np.array([net for net in scaled_df[f'{selected_size}_best_fit_err'].iloc[0]])
+
+                slopes = best_fit_model[:,i*2+1]
+                slopes_err = best_fit_model_err[:,i*2+1]
+                
+                med = np.median(slopes)
+                med_err = np.median(slopes_err)
+
+                indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
+
+                if np.any(indx): # if no points less than 3 sigma
+
+                    med = np.median(slopes[slopes < 0])
+                    indx = np.where(slopes <= 15)
+
+                    if len(binned_wl) <= 2: 
+
+                        if counter_mode[grating][segment] == 0:
+                            trace = go.Scatter(
+                                x = binned_wl,
+                                y = slopes*100.0,
+                                error_y = dict(type='data', array=slopes_err*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}'
+                            )
+                            counter_mode[grating][segment] = 1
+                        else:
+                            trace = go.Scatter(
+                                x = binned_wl,
+                                y = slopes*100.0,
+                                error_y = dict(type='data', array=slopes_err*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}',
+                                showlegend=False
+                            )
+
+                        fig.add_trace(trace, row=i+1, col=1)
+                    
+                    else:
+                        if counter_mode[grating][segment] == 0:
+                            trace = go.Scatter(
+                                x = binned_wl[indx],
+                                y = slopes[indx]*100.0,
+                                error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}'
+                            )
+                            counter_mode[grating][segment] = 1
+                        else:
+                            trace = go.Scatter(
+                                x = binned_wl[indx],
+                                y = slopes[indx]*100.0,
+                                error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}',
+                                showlegend=False
+                            )
+
+                        fig.add_trace(trace, row=i+1, col=1)
+                
+                else:
+                    if counter_mode[grating][segment] == 0:
+                        trace = go.Scatter(
+                            x = binned_wl[indx],
+                            y = slopes[indx]*100.0,
+                            error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}'
+                        )
+                        counter_mode[grating][segment] = 1
+                    else:
+                        trace = go.Scatter(
+                            x = binned_wl[indx],
+                            y = slopes[indx]*100.0,
+                            error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}',
+                            showlegend=False
+                        )
+
+                    fig.add_trace(trace, row=i+1, col=1)
+        fig.update_layout(title_text="Slope vs Wavelength", height=1000*len(monitor.breakpoints), width=1200)
+        fig.update_xaxes(title_text="Wavelength (Å)")
+        fig.update_yaxes(title_text="Slope (%/yr)", range=(-20, 5))
+    
+
+    html_str = fig.to_html(full_html=False)
+
+    # Trigger the download
+    return dict(content=html_str, filename="test_time_slope.html")
+    #return dict(content=fig_html, filename="time_slope_test.html")
+
+
+
+
+
+## ------- SAVING METHODS ------- ##
+## ------- SAVING METHODS ------- ##
 
 
 ## ------- BUTTONS ------- ##
