@@ -11,13 +11,8 @@ from tqdm.contrib.concurrent import process_map
 import mpfit
 from scipy.interpolate import interp1d
 
-import plotly.graph_objs as go
-from plotly.subplots import make_subplots
-
 import requests
 from io import StringIO
-from astropy.convolution import Box1DKernel, convolve
-
 """
 This is the base class for the FUVTDS Monitor that will do all
 the analysis need and provide the necessary component to the
