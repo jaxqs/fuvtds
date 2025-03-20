@@ -6,6 +6,7 @@ from astropy.time import Time
 import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
+import plotly.io as pio
 from io import StringIO
 from astropy.convolution import Box1DKernel, convolve
 
@@ -129,6 +130,8 @@ app.layout = html.Div(children=[
 
                         # Container for the right side (RadioItems)
                         html.Div(children=[
+                            html.Button("Save as HTML", id='save-relative-net'),
+                            dcc.Download(id='relative-html'),
                             html.Label('Wavelength Bins'),
                             dcc.RadioItems(
                                 id='wavelength-bins'
@@ -888,8 +891,233 @@ def save_time_slope_as_html(n_clicks, data, dates, selected_size):
     #return dict(content=fig_html, filename="time_slope_test.html")
 
 
+## ------- SAVING METHODS ------- ##
+# save the relative sensitivity plots
+@callback(
+        Output('relative-html', 'data'),
+        Input('save-relative-net', 'n_clicks'),
+        Input('computed-results', 'data'),
+        Input('dates', 'data'),
+        Input('sizes', 'value')
+)
+def save_relative_as_html(n_clicks, data, dates, selected_size):
+
+    if n_clicks is None:
+        return dash.no_update
+    if data is None:
+        fig = go.Figure()
+        return fig
+    
+    # !!! grab necessary data !!!
+    # read in the fuv tds data as a dataframe
+    df = pd.read_json(StringIO(data), orient='split')
+
+    # establish the functions necessary for the analysis
+    monitor = FUVTDSMonitor(dates)
+
+    big_figs = []
+    # loop over all the things 
+    for cenwave in df['cenwave'].unique():
+        for segment in df['segment'][df['cenwave'] == cenwave].unique():
+            sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
+            date = np.array(sub_df['date-obs']).flatten()
+            grating = sub_df['opt_elem'].iloc[0]
+
+            # scale to one
+            scaled_df = monitor.scale_to_1(table=sub_df, size=selected_size) 
+
+            net  = np.array([net for net in scaled_df[f'{selected_size}_scaled_net'].iloc[0]])
+            net_err = np.array([net for net in scaled_df[f'{selected_size}_scaled_stdev'].iloc[0]])
+            best_fit_model = np.array([net for net in scaled_df[f'{selected_size}_best_fit'].iloc[0]])
+
+            binned_wl = np.array([wl for wl in sub_df[f'{selected_size}_binned_wl']])[0]
+            wl_edges  = np.array([wl for wl in sub_df[f'{selected_size}_wl_edges']])[0]
+
+            # TDS model
+            tds = np.transpose([1.0 / monitor.tds_backout(
+                1.0, binned_wl, 
+                Time(mjd, format='decimalyear').mjd,
+                grating, 'ANY', segment, cenwave, TDSTAB
+            ) for mjd in date])
+
+            fig = make_subplots(rows=2, cols=1, 
+                                shared_xaxes=True,
+                                vertical_spacing=0.05,
+                                subplot_titles=(f'{grating}/{cenwave}/{segment} - Relative net count rate',
+                                        ''))
+            
+            # loop over the binned wl
+            figs = []
+            for i, wl in enumerate(binned_wl):
+                curr_sens = go.Scatter(
+                    x = date,
+                    y = net[:,i],
+                    error_y = dict(type='data', array=net_err[:,i], visible=True),
+                    mode='markers',
+                    name=f'Current TDS {wl_edges[i]} - {wl_edges[i+1]}',
+                    customdata= np.stack(
+                        (np.array(sub_df['rootname']).flatten(),
+                         np.array(sub_df['life_adj']).flatten(),
+                         np.array(sub_df['proposid']).flatten(),
+                         np.array(sub_df['targname']).flatten(),
+                         np.array(sub_df['date-obs-fits']).flatten()),
+                         axis=-1
+                    ),
+                    hovertemplate=
+                    'Rootname: %{customdata[0]}<br>'+
+                    'Life_adj: %{customdata[1]}<br>'+
+                    'Proposid: %{customdata[2]}<br>'+
+                    'Target: %{customdata[3]}<br>'+
+                    'Date Obs: %{customdata[4]}'
+                    "<extra></extra>",
+                    line_color='black'
+                )
+
+                # tds model
+                tds_model = go.Scatter(
+                    x = date,
+                    y = tds[i],
+                    name = 'Current TDSTAB',
+                    line = dict(color='orange', width=4, dash='dash')
+                )
+
+                x = np.append(monitor.reftime, monitor.breakpoints)
+                x = np.append(x, date[-1])
+
+                # best fit 
+                best_fit = go.Scatter(
+                    x = x, 
+                    y = monitor.broken_lines(x - monitor.reftime, *best_fit_model[i,:]),
+                    name = 'Best Fit',
+                    line = dict(color='grey', width=4, dash='dash')
+                )
+
+                # plot two! plot two!
+                ymodel = tds[i]
+                residual = 100.0*(net[:,i] - ymodel) / ymodel
+                sens_err = go.Scatter(
+                    x = date, 
+                    y = residual,
+                    mode = 'markers',
+                    name = 'TDSTAB',
+                    customdata = np.stack(
+                        (np.array(sub_df['rootname']).flatten(),
+                         np.array(sub_df['life_adj']).flatten(),
+                         np.array(sub_df['proposid']).flatten(),
+                         np.array(sub_df['targname']).flatten(),
+                         np.array(sub_df['date-obs-fits']).flatten()),
+                         axis=-1
+                    ),
+                    hovertemplate=
+                    'Rootname: %{customdata[0]}<br>'+
+                    'Life_adj: %{customdata[1]}<br>'+
+                    'Proposid: %{customdata[2]}<br>'+
+                    'Target: %{customdata[3]}<br>'+
+                    'Date Obs: %{customdata[4]}'
+                    "<extra></extra>",
+                    line_color='orange'
+                )
+
+                ymodel = monitor.broken_lines(date - monitor.reftime, *best_fit_model[i,:])
+                residual = 100.0 * (net[:,i] - ymodel) / ymodel
+                best_fit_err = go.Scatter(
+                    x = date,
+                    y = residual,
+                    mode = 'markers',
+                    name = 'Best Fit',
+                    customdata = np.stack(
+                        (np.array(sub_df['rootname']).flatten(),
+                         np.array(sub_df['life_adj']).flatten(),
+                         np.array(sub_df['proposid']).flatten(),
+                         np.array(sub_df['targname']).flatten(),
+                         np.array(sub_df['date-obs-fits']).flatten()),
+                         axis=-1
+                    ),
+                    hovertemplate =
+                    'Rootname: %{customdata[0]}<br>'+
+                    'Life_adj: %{customdata[1]}<br>'+
+                    'Proposid: %{customdata[2]}<br>'+
+                    'Target: %{customdata[3]}<br>'+
+                    'Date Obs: %{customdata[4]}'
+                    "<extra></extra>",
+                    line_color='black'
+                )
 
 
+                # fill between
+                fig.add_trace(go.Scatter(
+                    x = [x[0]-0.1, x[-1]+0.1],
+                    y = [-5, -5],
+                    mode='lines',
+                    fill = 'tonexty',
+                    showlegend=False,
+                    line_color='teal'), row=2, col=1)
+                fig.add_trace(go.Scatter(
+                    x = [x[0]-0.1, x[-1]+0.1],
+                    y = [5, 5],
+                    mode='lines',
+                    fill = 'tonexty',
+                    showlegend=False,
+                    line_color='teal'), row=2, col=1)
+                
+                fig.add_trace(go.Scatter(
+                    x = [x[0]-0.1, x[-1]+0.1],
+                    y = [-2, -2],
+                    mode='lines',
+                    fill = 'tozeroy',
+                    showlegend=False,
+                    line_color='purple'), row=2, col=1)
+                fig.add_trace(go.Scatter(
+                    x = [x[0]-0.1, x[-1]+0.1],
+                    y = [2, 2],
+                    mode='lines',
+                    fill = 'tozeroy',
+                    showlegend=False,
+                    line_color='purple'), row=2, col=1)
+                
+
+                # add traces
+                fig.add_trace(curr_sens, row=1, col=1)
+                fig.add_trace(best_fit, row=1, col=1)
+                fig.add_trace(tds_model, row=1, col=1)
+
+
+                # add vertical lines here
+                fig.add_traces(monitor.add_lines(monitor.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+                fig.add_traces(monitor.add_lines(monitor.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [min(residual)-3, max(residual)+3],True), rows=2, cols=1)
+                fig.add_traces(monitor.add_lines(monitor.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+                fig.add_traces(monitor.add_lines(monitor.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch', [min(residual)-3, max(residual)+3], True), rows=2, cols=1)
+
+                if segment == 'FUVA':
+                    fig.add_traces(monitor.add_lines(monitor.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+                    fig.add_traces(monitor.add_lines(monitor.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA',[min(residual)-3, max(residual)+3], True), rows=2, cols=1)
+                else:
+                    fig.add_traces(monitor.add_lines(monitor.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+                    fig.add_traces(monitor.add_lines(monitor.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [min(residual)-3, max(residual)+3], True), rows=2, cols=1)
+                
+                # add more traces
+                fig.add_trace(sens_err, row=2, col=1)
+                fig.add_trace(best_fit_err, row=2, col=1)
+
+                # update the y-axis based on what mode is being plotted
+                fig.update_yaxes(range=(min(net[:,i])-0.2, max(net[:,i])+0.2), row=1, col=1),
+                fig.update_yaxes(range=(min(residual)-3, max(residual)+3), row=2, col=1)
+
+                # update the x-axes
+                fig.update_xaxes(title_text='Date', range=(x[0]-0.1, x[-1]+0.1), row=2, col=1)
+                fig.update_yaxes(title_text='Relative net count rate', row=1, col=1),
+                fig.update_yaxes(title_text='Percent Difference', row=2, col=1)
+
+                figs.append(fig)
+    
+            # Trigger the download
+            html_str = ""
+            for fig in figs:
+                html_str+=fig.to_html(full_html=False)
+
+            big_figs.append(dict(content=html_str, filename=f"test_relative_{cenwave}_{segment}.html"))
+    
+    return big_figs
 
 ## ------- SAVING METHODS ------- ##
 ## ------- SAVING METHODS ------- ##
