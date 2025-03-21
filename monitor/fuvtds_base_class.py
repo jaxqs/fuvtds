@@ -1,4 +1,4 @@
-from astropy.io import fits, ascii
+from astropy.io import fits
 import numpy as np
 import glob
 import os
@@ -12,25 +12,24 @@ import mpfit
 from scipy.interpolate import interp1d
 
 import plotly.graph_objs as go
-from plotly.subplots import make_subplots
 
 import requests
 from io import StringIO
-from astropy.convolution import Box1DKernel, convolve
 
 """
 This is the base class for the FUVTDS Monitor that will do all
 the analysis need and provide the necessary component to the
-monitor that will conduct all the plotting.
+self that will conduct all the plotting.
 
 Please be aware, this will be a monster.
 
 Notes to do in the future:
     - Exchange mpfit.mpfit with scipy.curve_fit
     - Put outputs into a log file instead out outright outputting
-    - Fix the bug that affects the LP3 -> LP4 -> LP3, present in 1280 FUVB
-    - add highlighted areas in residual plots in plotting class for 2% and 5%
     - csv file of Bad exposures instead of a dictionary
+    - add in latest pids and exposures and bad exposures
+    - add latest hv raise
+    - code in the target change
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -38,7 +37,7 @@ __author__ = 'J. Hernandez' #Me! JAQ!
 class FUVTDSBase:
     """
     This class will analyze and store the results necessary to
-    conduct a FUVTDS monitor analysis.
+    conduct a FUVTDS self analysis.
 
     Attributes:
         PIDs: .dat file of TDS PIDs
@@ -623,7 +622,7 @@ class FUVTDSBase:
             x1d_paths: The complete paths to all the x1dfiles, in chronological order and
                     cleaned of all the datasets we do not want.
         """
-       # read in dat file that has the PIDs of all the FUV TDS monitoring data
+       # read in dat file that has the PIDs of all the FUV TDS selfing data
        programs_df = pd.read_csv(PIDs)
        
        # change dat file into list of str of PID numbers
@@ -687,7 +686,7 @@ class FUVTDSBase:
         Args:
             COSMO: the directory in which the data is stored. By default,
                     this will be /grp/hst/cos2/cosmo.
-            all_programs: the PIDs of all the programs used in the FUVTDS monitor
+            all_programs: the PIDs of all the programs used in the FUVTDS self
             pattern: the pattern of file we want, in this case x1d files.
         Returns:
             path_list: the path to the x1d file.
@@ -709,6 +708,304 @@ class FUVTDSMonitor(object):
 # --------------------------------------------------------------------------------#
 # --------------------------------------------------------------------------------#
 # PLOT TOOLS
+# --------------------------------------------------------------------------------#
+    def rel_sens_graph(self, date, net, net_err, i, wl_edges, best_fit_model, df, tds, fig):
+        """
+        This tool is so I can reduce repetition in the app. This way one function will be called
+        to display the relative sensitivity graph in the dash app and to save as multiple html
+        files. This will reduce redundance of editing the same plotly code twice in different
+        places. 
+        """
+
+        segment = df['segment'].iloc[0]
+
+        curr_sens = go.Scatter(
+            x = date,
+            y = net[:,i],
+            error_y = dict(type='data', array=net_err[:,i], visible=True),
+            mode='markers',
+            name=f'Current TDS {wl_edges[i]} - {wl_edges[i+1]}',
+            customdata= np.stack(
+                (np.array(df['rootname']).flatten(),
+                np.array(df['life_adj']).flatten(),
+                np.array(df['proposid']).flatten(),
+                np.array(df['targname']).flatten(),
+                np.array(df['date-obs-fits']).flatten()),
+                axis=-1
+            ),
+            hovertemplate=
+            'Rootname: %{customdata[0]}<br>'+
+            'Life_adj: %{customdata[1]}<br>'+
+            'Proposid: %{customdata[2]}<br>'+
+            'Target: %{customdata[3]}<br>'+
+            'Date Obs: %{customdata[4]}'
+            "<extra></extra>",
+            line_color='black'
+        )
+
+        # tds model
+        tds_model = go.Scatter(
+            x = date,
+            y = tds[i],
+            name = 'Current TDSTAB',
+            line = dict(color='orange', width=4, dash='dash')
+        )
+
+        x = np.append(self.reftime, self.breakpoints)
+        x = np.append(x, date[-1])
+
+        # best fit 
+        best_fit = go.Scatter(
+            x = x, 
+            y = self.broken_lines(x - self.reftime, *best_fit_model[i,:]),
+            name = 'Best Fit',
+            line = dict(color='grey', width=4, dash='dash')
+        )
+
+        # plot two! plot two!
+        ymodel = tds[i]
+        residual = 100.0*(net[:,i] - ymodel) / ymodel
+        sens_err = go.Scatter(
+            x = date, 
+            y = residual,
+            mode = 'markers',
+            name = 'TDSTAB',
+            customdata = np.stack(
+                (np.array(df['rootname']).flatten(),
+                np.array(df['life_adj']).flatten(),
+                np.array(df['proposid']).flatten(),
+                np.array(df['targname']).flatten(),
+                np.array(df['date-obs-fits']).flatten()),
+                axis=-1
+            ),
+            hovertemplate=
+            'Rootname: %{customdata[0]}<br>'+
+            'Life_adj: %{customdata[1]}<br>'+
+            'Proposid: %{customdata[2]}<br>'+
+            'Target: %{customdata[3]}<br>'+
+            'Date Obs: %{customdata[4]}'
+            "<extra></extra>",
+            line_color='orange'
+        )
+
+        ymodel = self.broken_lines(date - self.reftime, *best_fit_model[i,:])
+        residual = 100.0 * (net[:,i] - ymodel) / ymodel
+        best_fit_err = go.Scatter(
+            x = date,
+            y = residual,
+            mode = 'markers',
+            name = 'Best Fit',
+            customdata = np.stack(
+                (np.array(df['rootname']).flatten(),
+                np.array(df['life_adj']).flatten(),
+                np.array(df['proposid']).flatten(),
+                np.array(df['targname']).flatten(),
+                np.array(df['date-obs-fits']).flatten()),
+                axis=-1
+            ),
+            hovertemplate =
+            'Rootname: %{customdata[0]}<br>'+
+            'Life_adj: %{customdata[1]}<br>'+
+            'Proposid: %{customdata[2]}<br>'+
+            'Target: %{customdata[3]}<br>'+
+            'Date Obs: %{customdata[4]}'
+            "<extra></extra>",
+            line_color='black'
+        )
+
+
+        # fill between
+        fig.add_trace(go.Scatter(
+            x = [x[0]-0.1, x[-1]+0.1],
+            y = [-5, -5],
+            mode='lines',
+            fill = 'tonexty',
+            showlegend=False,
+            line_color='teal'), row=2, col=1)
+        fig.add_trace(go.Scatter(
+            x = [x[0]-0.1, x[-1]+0.1],
+            y = [5, 5],
+            mode='lines',
+            fill = 'tonexty',
+            showlegend=False,
+            line_color='teal'), row=2, col=1)
+        
+        fig.add_trace(go.Scatter(
+            x = [x[0]-0.1, x[-1]+0.1],
+            y = [-2, -2],
+            mode='lines',
+            fill = 'tozeroy',
+            showlegend=False,
+            line_color='purple'), row=2, col=1)
+        fig.add_trace(go.Scatter(
+            x = [x[0]-0.1, x[-1]+0.1],
+            y = [2, 2],
+            mode='lines',
+            fill = 'tozeroy',
+            showlegend=False,
+            line_color='purple'), row=2, col=1)
+        
+
+        # add traces
+        fig.add_trace(curr_sens, row=1, col=1)
+        fig.add_trace(best_fit, row=1, col=1)
+        fig.add_trace(tds_model, row=1, col=1)
+
+
+        # add vertical lines here
+        fig.add_traces(self.add_lines(self.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+        fig.add_traces(self.add_lines(self.breakpoints, dict(color='red', width=2, dash='dash'), 'Breakpoint', [min(residual)-3, max(residual)+3],True), rows=2, cols=1)
+        fig.add_traces(self.add_lines(self.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+        fig.add_traces(self.add_lines(self.LPs, dict(color='grey', width=2, dash='dot'), 'LP switch', [min(residual)-3, max(residual)+3], True), rows=2, cols=1)
+
+        if segment == 'FUVA':
+            fig.add_traces(self.add_lines(self.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+            fig.add_traces(self.add_lines(self.HV_FUVA, dict(color='purple', width=2, dash='dash'), 'Voltage Change SegA',[min(residual)-3, max(residual)+3], True), rows=2, cols=1)
+        else:
+            fig.add_traces(self.add_lines(self.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [min(net[:,i])-0.2, max(net[:,i])+0.2]))
+            fig.add_traces(self.add_lines(self.HV_FUVB, dict(color='grey', width=2, dash='dash'), 'Voltage Change SegB', [min(residual)-3, max(residual)+3], True), rows=2, cols=1)
+        
+        # add more traces
+        fig.add_trace(sens_err, row=2, col=1)
+        fig.add_trace(best_fit_err, row=2, col=1)
+
+        # update the y-axis based on what mode is being plotted
+        fig.update_yaxes(range=(min(net[:,i])-0.2, max(net[:,i])+0.2), row=1, col=1),
+        fig.update_yaxes(range=(min(residual)-3, max(residual)+3), row=2, col=1)
+        
+        return fig, x
+    
+
+    def time_slope_graph(self, df, size, timebin, fig):
+
+        # Differentiate symbols - might be a better way to do this?
+        marker_type = {'G140L': {'FUVA': 'square-open', 'FUVB': 'square'},
+                    'G130M': {'FUVA': 'circle-open', 'FUVB': 'circle'},
+                    'G160M': {'FUVA': 'triangle-up-open', 'FUVB': 'triangle-up'}}
+        color_type = {'G140L': 'red',
+                    'G130M': 'blue',
+                    'G160M': 'teal'}
+        counter_mode = {'G140L': {'FUVA': 0, 'FUVB': 0},
+                    'G130M': {'FUVA': 0, 'FUVB': 0},
+                    'G160M': {'FUVA': 0, 'FUVB': 0}}
+
+        for cenwave in df['cenwave'].unique():
+            for segment in df['segment'][df['cenwave'] == cenwave].unique():
+
+                sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
+                grating = sub_df['opt_elem'].iloc[0]
+
+                # scale to one 
+                scaled_df = self.scale_to_1(table=sub_df, size=size)
+                binned_wl = np.array([wl for wl in sub_df[f'{size}_binned_wl']])[0]
+
+                best_fit_model = np.array([net for net in scaled_df[f'{size}_best_fit'].iloc[0]])
+                best_fit_model_err = np.array([net for net in scaled_df[f'{size}_best_fit_err'].iloc[0]])
+
+                slopes = best_fit_model[:,timebin*2+1]
+                slopes_err = best_fit_model_err[:,timebin*2+1]
+                
+                med = np.median(slopes)
+                med_err = np.median(slopes_err)
+
+                indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
+
+                if np.any(indx): # if no points less than 3 sigma
+
+                    med = np.median(slopes[slopes < 0])
+                    indx = np.where(slopes <= 15)
+
+                    if len(binned_wl) <= 2: 
+
+                        if counter_mode[grating][segment] == 0:
+                            trace = go.Scatter(
+                                x = binned_wl,
+                                y = slopes*100.0,
+                                error_y = dict(type='data', array=slopes_err*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}'
+                            )
+                            counter_mode[grating][segment] = 1
+                        else:
+                            trace = go.Scatter(
+                                x = binned_wl,
+                                y = slopes*100.0,
+                                error_y = dict(type='data', array=slopes_err*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}',
+                                showlegend=False
+                            )
+
+                        fig.add_trace(trace)
+                    
+                    else:
+                        if counter_mode[grating][segment] == 0:
+                            trace = go.Scatter(
+                                x = binned_wl[indx],
+                                y = slopes[indx]*100.0,
+                                error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}'
+                            )
+                            counter_mode[grating][segment] = 1
+                        else:
+                            trace = go.Scatter(
+                                x = binned_wl[indx],
+                                y = slopes[indx]*100.0,
+                                error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                                line_color = color_type[grating],
+                                marker_symbol=marker_type[grating][segment],
+                                mode='markers',
+                                name=f'{grating}/{segment}',
+                                legendgroup=f'{grating}/{segment}',
+                                showlegend=False
+                            )
+
+                        fig.add_trace(trace)
+                
+                else:
+                    if counter_mode[grating][segment] == 0:
+                        trace = go.Scatter(
+                            x = binned_wl[indx],
+                            y = slopes[indx]*100.0,
+                            error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}'
+                        )
+                        counter_mode[grating][segment] = 1
+                    else:
+                        trace = go.Scatter(
+                            x = binned_wl[indx],
+                            y = slopes[indx]*100.0,
+                            error_y = dict(type='data', array=slopes_err[indx]*100.0, visible=True),
+                            line_color = color_type[grating],
+                            marker_symbol=marker_type[grating][segment],
+                            mode='markers',
+                            name=f'{grating}/{segment}',
+                            legendgroup=f'{grating}/{segment}',
+                            showlegend=False
+                        )
+
+                    fig.add_trace(trace)
+
+        fig.update_layout(title_text="Slope vs Wavelength")
+        fig.update_xaxes(title_text="Wavelength (Å)")
+        fig.update_yaxes(title_text="Slope (%/yr)", range=(-20, 5))
+
+        return fig
+
 # --------------------------------------------------------------------------------#
     def add_lines(self, lines, style, name, yrange, second=False):
         """
