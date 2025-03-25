@@ -488,6 +488,14 @@ def save_time_slope_as_html(n_clicks, data, dates, selected_size):
 
         fig = monitor.time_slope_graph(df, selected_size, i, fig)
 
+        if i == 0:
+            fig.update_layout(title_text=f"t < {bp}")
+        
+        elif i == len(monitor.breakpoints)-1:
+            fig.update_layout(title_text=f'{bp} < t')
+        else:
+            fig.update_layout(title_text=f'{monitor.breakpoints[i-1]} < t < {bp}')
+
         figs.append(fig)
     
 

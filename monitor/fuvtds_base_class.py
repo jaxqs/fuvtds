@@ -973,6 +973,9 @@ class FUVTDSMonitor(object):
                         fig.add_trace(trace)
                 
                 else:
+                    # Needed for the 1327/FUVB bug since mode is no longer monitered
+                    if len(slopes[indx]) == 0:
+                        continue 
                     if counter_mode[grating][segment] == 0:
                         trace = go.Scatter(
                             x = binned_wl[indx],
@@ -985,6 +988,7 @@ class FUVTDSMonitor(object):
                             legendgroup=f'{grating}/{segment}'
                         )
                         counter_mode[grating][segment] = 1
+
                     else:
                         trace = go.Scatter(
                             x = binned_wl[indx],
