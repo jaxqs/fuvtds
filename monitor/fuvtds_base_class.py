@@ -185,6 +185,9 @@ class FUVTDSBase:
             lp6_gd71 = table[(table['life_adj'] == 6) &
                                   (table['targname'] == 'GD71')]
             
+            lp6_wd1057 = table[(table['life_adj'] == 6) &
+                                  (table['targname'] == 'WD1057+719')]
+            
             lp4_wd308 = table[(table['life_adj'] == 4) &
                               (table['targname'] == 'WD0308-565')]
             lp4_gd71 = table[(table['life_adj'] == 4) &
@@ -196,6 +199,8 @@ class FUVTDSBase:
             else: 
                 lp4 = lp4_wd308
                 lp6 = lp6_wd308
+            
+            lp6 = pd.concat([lp6, lp6_wd1057])
 
             #Find the connection visit by closest date. Only a safe assumption for LP5 and 
             #LP6 where the visits happened on the same day.
@@ -205,7 +210,6 @@ class FUVTDSBase:
             lp6 = scale(lp6, lp4, a)
 
             table.loc[table['life_adj'] == 6] = lp6
-            
 
             print(f"+++ Scaling LP6 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp6['file_path'].iloc[0]}")
 
@@ -235,8 +239,7 @@ class FUVTDSBase:
             table.loc[table['life_adj'] == 5] = lp5
 
             print(f"+++ Scaling LP5 to LP4 using data from datasets: {lp4['file_path'].iloc[a]} {lp5['file_path'].iloc[0]}")
-        
-
+            
         # LP3 to LP4 to LP3
         if (4 in np.array(table['life_adj']).flatten()) & (3 in np.array(table['life_adj']).flatten()):
             
@@ -245,6 +248,9 @@ class FUVTDSBase:
                             (table['targname'] == 'WD0308-565')]
             lp4_gd71 = table[(table['life_adj'] >= 4) &
                             (table['targname'] == 'GD71')]
+            
+            lp4_wd1057 = table[(table['life_adj'] >= 4) &
+                            (table['targname'] == 'WD1057+719')]
             
             lp3_wd308 = table[(table['life_adj'] == 3) &
                                 (table['targname'] == 'WD0308-565') &
@@ -261,16 +267,20 @@ class FUVTDSBase:
                                 (table['date-obs'] > 2019.0)]
             
             if (cenwave > 1500) & (segment == 'FUVA'):
-                lp3   = lp3_gd71 #LP3 indicies after LP3->LP4->LP3.
-                lp4   = lp4_gd71
-                lp3_2 = lp3_gd71_2
+                lp3        = lp3_gd71 #LP3 indicies after LP3->LP4->LP3.
+                lp4        = lp4_gd71
+                lp3_2      = lp3_gd71_2
+                lp4_wd1057 = lp4_wd1057
             else: 
                 lp3   = lp3_wd308 #LP3 indicies after LP3->LP4->LP3.
                 lp4   = lp4_wd308
                 lp3_2 = lp3_wd308_2
+                lp4_wd1057 = lp4_wd1057
             
             if len(lp3_2) != 0:
                 lp4 = pd.concat([lp4, lp3_2]) #lp4_indx needs to contain the post 2021 lp3_indx
+            
+            lp4 = pd.concat([lp4, lp4_wd1057])
             
             if cenwave != 800:
                 a = find_nearest(np.array(lp3['date-obs']).flatten(), 
@@ -363,6 +373,9 @@ class FUVTDSBase:
             lp3_gd71 = table[(table['life_adj'] >= 3) &
                                     (table['targname'] == 'GD71')]
             
+            lp3_wd1057 = table[(table['life_adj'] >= 3) &
+                                    (table['targname'] == 'WD1057+719')]
+            
             lp2_wd308 = table[(table['life_adj'] == 2) &
                                     (table['targname'] == 'WD0308-565')]
             lp2_gd71 = table[(table['life_adj'] == 2) &
@@ -374,6 +387,8 @@ class FUVTDSBase:
             else: 
                 lp2 = lp2_wd308
                 lp3  = lp3_wd308
+
+            lp3 = pd.concat([lp3, lp3_wd1057])
 
             a = find_nearest(np.array(lp2['date-obs']).flatten(), 
                             np.array(lp3['date-obs']).flatten()[0])
@@ -389,6 +404,9 @@ class FUVTDSBase:
                                    (table['targname'] == 'WD0308-565')]
             lp2_gd71 = table[(table['life_adj'] >= 2) &
                                   (table['targname'] == 'GD71')]
+            
+            lp2_wd1057 = table[(table['life_adj'] >= 2) &
+                                   (table['targname'] == 'WD1057+719')]
             
             lp1_wd1057 = table[(table['life_adj'] == 1) &
                                     (table['targname'] == 'WD1057+719')]
@@ -406,12 +424,14 @@ class FUVTDSBase:
                 lp1 = lp1_wd0947
                 lp2  = lp2_wd308
 
+            lp2 = pd.concat([lp2, lp2_wd1057])
+
             a = find_nearest(np.array(lp1['date-obs']).flatten(), 
                             np.array(lp2['date-obs']).flatten()[0])
             
             lp2 = scale(lp2, lp1, a)
 
-            table.loc[table['life_adj'] >= 2] = lp2
+            table.loc[(table['life_adj'] >= 2)] = lp2
 
             print(f"+++ Scaling LP2 to LP1 using data from datasets: {lp1['file_path'].iloc[a]} {lp2['file_path'].iloc[0]}")
         return (table)
