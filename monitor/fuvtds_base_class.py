@@ -142,6 +142,42 @@ class FUVTDSBase:
         if len(table) == 0:
             return
         
+        # Scale the change in target for G160M LP6 and G130M/1096/FUVB LP2
+        if ( (6 in np.array(table['life_adj']).flatten()) | (2 in np.array(table['life_adj']).flatten()) ) & ('WD1057+719' in np.array(table['targname']).flatten()):
+            """
+            Fit the LP6 G160M GD71 data and the WD1057+719 data separately and use the difference
+            at the first WD1057+719 date to scale all the WD1057+719 data to the LP6 G160M GD71 data
+            """
+
+            lp6_wd1057 = table[(table['life_adj'] == 6) & (table['targname'] == 'WD1057+719')]
+            
+            lp6_gd71 = table[(table['life_adj'] == 6) & (table['targname'] == 'GD71')]
+            
+            lp6_wd308 = table[(table['life_adj'] == 6) & (table['targname'] == 'WD0308-565')]
+            
+            if (cenwave > 1500) & (segment == 'FUVA'):
+                old_target = lp6_gd71
+                new_target = lp6_wd1057
+            elif (cenwave == 1096) & (segment == 'FUVB'):
+                old_target = table[(table['life_adj'] == 2) & (table['targname'] == 'GD71')]
+                new_target = table[(table['life_adj'] == 2) & (table['targname'] == 'WD1057+719')]
+            else:
+                old_target = lp6_wd308
+                new_target = lp6_wd1057
+            
+            a = find_nearest(np.array(old_target['date-obs']).flatten(), 
+                             np.array(new_target['date-obs']).flatten()[0])
+            
+            new_target = scale(new_target, old_target, a)
+
+            if (6 in np.array(table['life_adj']).flatten()) & ('WD1057+719' in np.array(table['targname']).flatten()):
+                table.loc[(table['life_adj'] == 6) & (table['targname'] == 'WD1057+719' )] = new_target
+            elif (2 in np.array(table['life_adj']).flatten()) & ('WD1057+719' in np.array(table['targname']).flatten()):
+                table.loc[(table['life_adj'] == 2) & (table['targname'] == 'WD1057+719' )] = new_target
+            
+            print(f"+++ Scaling old target to WD1057+719 using data from datasets: {old_target['file_path'].iloc[a]} {new_target['file_path'].iloc[0]}")
+            
+        
         if (6 in np.array(table['life_adj']).flatten()) & (4 in np.array(table['life_adj']).flatten()):
             
             lp6_wd308 = table[(table['life_adj'] == 6) &
@@ -386,7 +422,7 @@ class FUVTDSBase:
         """
 
         targ_info_dict = {
-            1533: {'FUVA': ['GD71'], 'FUVB': ['WD0308-565']},
+            1533: {'FUVA': ['GD71', 'WD1057+719'], 'FUVB': ['WD1057+719', 'WD0308-565']},
             1577: {'FUVA': ['GD71', 'WD1057+719'], 'FUVB': ['WD1057+719', 'WD0308-565']},
             1623: {'FUVA': ['GD71', 'WD1057+719'], 'FUVB': ['WD1057+719', 'WD0308-565']},
             1291: {'FUVA': ['WD0308-565', 'WD0947+857'], 'FUVB': ['WD0308-565', 'WD0947+857']},
@@ -396,7 +432,7 @@ class FUVTDSBase:
             800:  {'FUVA': ['WD0308-565']},
             1222: {'FUVA': ['WD0308-565'], 'FUVB': ['WD0308-565']},
             1055: {'FUVA': ['WD0308-565'], 'FUVB': ['WD0308-565']},
-            1096: {'FUVB': ['GD71']}
+            1096: {'FUVB': ['GD71', 'WD1057+719']}
         }
 
         # Dictionary that sets the binsize and wavelength edges of each segment
@@ -479,13 +515,13 @@ class FUVTDSBase:
                            'ldv010etq', 'ler107a7q', 'ldqj05yoq', 'ldqj08jdq', 'ldqj12e6q', 'ldqj56a7q', 
                            'ldqj57tvq', 'ldqj59jxq', 'ldv007pmq', 'ldv008orq', 'ldv010fvq', 'le5g07naq', 
                            'ler15bhaq', 'lf205ag7q', 'lefe03gjq', 'lbxmt3m3q', 'lbxm04p7q', 'lbxmt3mcq',
-                           'lbxmt3m1q'], 
+                           'lbxmt3m1q', 'lf4g8aj5q', 'lf4g06fhq', 'lf4h06xjq', 'lf4h5agqq', 'lf4g06fhq'], 
                 'G140L': ['ldv007piq', 'ldv008onq', 'ldv010fpq', 'le5g07n4q', 'ler158owq', 'lf205ag2q',
                           'ldqj05ymq', 'ldqj08jbq', 'ldqj12eeq', 'ldqj56afq', 'ldqj57u3q', 'ldqj58hpq',
                           'ldqj59k5q', 'ldv007pkq', 'ldv008opq', 'ldv010ftq', 'le5g07n8q', 'lf205ag4q',
                           'ldqj05ykq', 'ldqj08j9q', 'ldqj12ecq', 'ldqj56adq', 'ldqj57u1q', 'ldqj58hmq',
                           'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq', 'lbxmt1nzq', 'lbxmt3lwq',
-                          'lbxmt3mfq'],
+                          'lbxmt3mfq', 'lf4h8ar8q', 'lf4h8araq', 'lf4h5agiq', 'lf4h5agoq', 'lf4h5agmq'],
                 'G160M': ['lbb917kfq', 'ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2056ftq', 'ldqj05y0q', 
                           'ldqj08j3q', 'ldqj13e9q', 'ldqj12e8q', 'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 
                           'ldv006lsq', 'ldqj59jzq', 'ldv007peq', 'ldv008ojq', 'ldv010flq', 'ler106dsq',
@@ -493,7 +529,9 @@ class FUVTDSBase:
                           'ldqj12eaq', 'ldqj56abq', 'ldqj57tzq', 'ldqj58hjq', 'ldv006lvq', 'ldqj59k1q', 
                           'ldv007pgq', 'ldv008olq', 'ldv010fnq', 'ler106doq', 'ler106dwq', 'lf2006lqq', 
                           'lf205bb8q', 'lf2111zuq', 'ler106duq', 'ler106dkq', 'lbxm02agq', 'lbxm02bxq', 
-                          'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q']} 
+                          'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q', 'lf4g06fnq', 'lf4h06y5q',
+                          'lf4h06y1q', 'lf4h06ydq', 'lf4h5bn8q', 'lf4h5bn2q', 'lf4h5bnkq', 'lf4g06fnq', 
+                          'lf4g07cqq']} 
             return (bad_roots[grating])
    
 
