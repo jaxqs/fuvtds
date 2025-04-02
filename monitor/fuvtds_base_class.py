@@ -10,6 +10,7 @@ from scipy.stats import binned_statistic
 from tqdm.contrib.concurrent import process_map
 import mpfit
 from scipy.interpolate import interp1d
+from datetime import datetime
 
 import plotly.graph_objs as go
 
@@ -27,9 +28,6 @@ Notes to do in the future:
     - Exchange mpfit.mpfit with scipy.curve_fit
     - Put outputs into a log file instead out outright outputting
     - csv file of Bad exposures instead of a dictionary
-    - add in latest pids and exposures and bad exposures
-    - add latest hv raise
-    - code in the target change
 """
 
 __author__ = 'J. Hernandez' #Me! JAQ!
@@ -47,10 +45,20 @@ class FUVTDSBase:
 
     def __init__(self, PIDs, reftime = 54952.0, inventory='inventory.csv'):
         """
-        Args:
+        Attributes:
+            breakpoints: the current TDS breakpoints in use in decimalyear
+            HV_FUVA: the current FUV TDS High Voltage dates for SegA
+            HV_FUVB: the current FUV TDS High Voltage dates for SegB
+            LPs: the current Lifetime Positions (LPs) dates 
+            cenwaves: the current monitored central wavelengths (cenwaves) of FUV TDS
+            segments: the segments of the FUV detector
+            reftimes: the "one" point, or zero point, in time, 2003
+
+            tables: the scaled dataframe tables of the monitored modes over time
+            TDSDates: the important dates of breakpoints, HV FUVA, HV FUVB, LPs, and reftime
         """
         self.breakpoints = np.array([2010.2, 2011.2, 2011.75, 2012.0, 2012.8, 2013.8, 2015.5, 2019.0, 2020.6, 2022.0, 2023.2])
-        self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94])
+        self.HV_FUVA = np.array([2012.23,2012.56,2014.84,2015.107,2017.75,2020.75,2021.76, 2023.94, 2025.19])
         self.HV_FUVB = np.array([2011.18,2013.47,2012.56,2014.55,2015.107,2016.05,2017.75,2020.75,2022.47, 2023.94])
         self.LPs = np.array([2012.56, 2015.107, 2017.75, 2021.76, 2022.75])
         self.cenwaves = np.array([1533, 1577, 1623, 1291, 1327, 1105, 1280, 800, 1222, 1055, 1096])
@@ -62,6 +70,9 @@ class FUVTDSBase:
         self.TDSDates = self.important_dates()
     
     def important_dates(self):
+        """
+        Save the important dates of the FUV TDS
+        """
         TDSDates = {
             'breakpoints': self.breakpoints,
             'HV_FUVA': self.HV_FUVA,
@@ -70,42 +81,87 @@ class FUVTDSBase:
             'reftime': self.reftime
         }
 
-        return(TDSDates)
+        return TDSDates
 
 # --------------------------------------------------------------------------------#
     def scalings(self, table):
         """
+        A multiprocessing function that divides each monitored mode to be scaled.
+
+        Attributes:
+            table: the dataframe that contains info about the TDS data
+        
+        Returns:
+            new_table: the LP scaled and sorted dataframe
         """
+
+        # list of dataframe tables that will be full of scaled df of specific monitored modes
         tables = []
+
+        # loop over the segments
         for segment in set(table['segment']):
+
+            # divide 16 processesors to do the same function
             with mp.Pool(16) as pool:
                 tab = pool.starmap(self.scale_lps, zip(set(table['cenwave']), repeat(segment), repeat(table)))
             pool.terminate
 
+            # combine the tables from the 16 processorers
             tab = pd.concat(tab, ignore_index=True)
+            
+            # add the tables to the list
             tables.append(tab)
             
+        # combine the tables and sort by exposure date
         new_table = pd.concat(tables, ignore_index=True)
         new_table = new_table.sort_values(by=['date-obs'], ignore_index=True)
 
-        return(new_table)
+        return new_table
         
 # --------------------------------------------------------------------------------#
     def scale_lps(self, cenwave, segment, table):
         """
+        Scale each monitored mode to all the LPs present in the data / targets in the data
+
+        Attributes:
+            cenwave: the cenwave selected
+            segment: the segment selected
+            table: the dataframe containing all the TDS data
+        
+        Returns:
+            table: newly scaled table 
         """
 
         def find_nearest(array, value):
+            """
+            Local function used in scale_lps to find the index of an exposure nearest to each other.
+            """
             array = np.asarray(array)
             idx = (np.abs(array - value)).argmin()
-            return (idx)
+            return idx
         
         def scale(scaled, scaled_to, a):
+            """
+            Local function used in scale_lps to scale the previous LP to the new LP for the sizes available
+
+            Attributes:
+                scaled: the new LP 
+                scaled_to: the old LP
+                a: the index of the nearest exposure of the old LP
+            
+            Returns:
+                scaled: the new LP that has been scaled
+            """
+
             size = ['small', 'large']
 
+            # loop thru the sizes
             for size in size:
+
+                # loop through the wavelength bins
                 for i, _ in enumerate(scaled[f'{size}_binned_wl'].iloc[0]):
 
+                    # identify the scale data and error and scale, scale, scale!
                     scaled_error = scaled[f'{size}_stdev'].iloc[0][i]
                     scaled_data  = scaled[f'{size}_binned_net'].iloc[0][i] 
 
@@ -134,11 +190,12 @@ class FUVTDSBase:
                             scale_factor
                         )
                 
-            return(scaled)
+            return scaled
 
+        # table of the specific mode
         table = table[(table['cenwave'] == cenwave) & (table['segment'] == segment)]
 
-
+        # if the table doesn't exist, then end (ie like c800/FUVB, which isn't real lmao)
         if len(table) == 0:
             return
         
@@ -434,7 +491,7 @@ class FUVTDSBase:
             table.loc[(table['life_adj'] >= 2)] = lp2
 
             print(f"+++ Scaling LP2 to LP1 using data from datasets: {lp1['file_path'].iloc[a]} {lp2['file_path'].iloc[0]}")
-        return (table)
+        return table
 
 # --------------------------------------------------------------------------------#
     def hdu_bin(self, file):
@@ -767,16 +824,57 @@ class FUVTDSMonitor(object):
 # --------------------------------------------------------------------------------#
 # PLOT TOOLS
 # --------------------------------------------------------------------------------#
+# --------------------------------------------------------------------------------#
+    def datetime_str(self):
+        """
+        This is taken from helper_functions.py from the original FUV TDS analysis scripts.
+        This function pulls in the datetime.today() function from datetime python package
+        and converts the result into a string to be used in adding dates to plots and other
+        output files.
+
+        There is probably a better way to do this, but I do not wish to figure it out now.
+        """
+        today_date = datetime.today()
+        year = today_date.year
+        month = today_date.month
+        day = today_date.day
+
+        if (month < 10) and (day < 10):
+            date_str = '%i0%i0%i' %(year, month, day)
+        elif (month < 10) and (day >= 10):
+            date_str = '%i0%i%i' %(year, month, day)
+        elif (day < 10) and (month >= 10):
+            date_str = '%i%i0%i' % (year, month, day)
+        else:
+            date_str = '%i%i%i' %(year, month, day)
+        return date_str
+# --------------------------------------------------------------------------------#
     def rel_sens_graph(self, date, net, net_err, i, wl_edges, best_fit_model, df, tds, fig):
         """
         This tool is so I can reduce repetition in the app. This way one function will be called
         to display the relative sensitivity graph in the dash app and to save as multiple html
         files. This will reduce redundance of editing the same plotly code twice in different
         places. 
+
+        Attributes:
+            date: observation dates of all exposures of the specific monitored mode
+            net: scaled net count rate of the specific monitored mode
+            net_err: scaled net count rate error of the specific monitored mode
+            i: the index number that corresponds with wavelength bin
+            wl_edges: the wavelength edges that correspond with the wavelength bin
+            best_fit_model: the best fit model from the scaled_to_one function
+            df: the dataframe of the specific monitored mode
+            tds: the TDS model from the TDSTAB
+            fig: the empty 2-panel plotly figure
+        
+        Returns:
+            fig: the polulated 2-panel plotly figure
+            x: np.array filled with reftime, breakpoints, and last exposure date observation
         """
 
-        segment = df['segment'].iloc[0]
+        segment = df['segment'].iloc[0] # segment of monitored mode
 
+        # plotly trace of the current sensitivity
         curr_sens = go.Scatter(
             x = date,
             y = net[:,i],
@@ -809,7 +907,7 @@ class FUVTDSMonitor(object):
             line = dict(color='orange', width=4, dash='dash')
         )
 
-        x = np.append(self.reftime, self.breakpoints)
+        x = np.append(self.reftime, self.breakpoints) # for the best fit
         x = np.append(x, date[-1])
 
         # best fit 
@@ -820,9 +918,11 @@ class FUVTDSMonitor(object):
             line = dict(color='grey', width=4, dash='dash')
         )
 
-        # plot two! plot two!
+        # plot two! plot two! the residuals
         ymodel = tds[i]
         residual = 100.0*(net[:,i] - ymodel) / ymodel
+
+        # residuals from the TDSTAB
         sens_err = go.Scatter(
             x = date, 
             y = residual,
@@ -848,6 +948,8 @@ class FUVTDSMonitor(object):
 
         ymodel = self.broken_lines(date - self.reftime, *best_fit_model[i,:])
         residual = 100.0 * (net[:,i] - ymodel) / ymodel
+
+        # residuals of the best fits, based off date observations exposures
         best_fit_err = go.Scatter(
             x = date,
             y = residual,
@@ -872,7 +974,7 @@ class FUVTDSMonitor(object):
         )
 
 
-        # fill between
+        # fill between for 5% and 2% residuals
         fig.add_trace(go.Scatter(
             x = [x[0]-0.1, x[-1]+0.1],
             y = [-5, -5],
@@ -904,7 +1006,7 @@ class FUVTDSMonitor(object):
             line_color='purple'), row=2, col=1)
         
 
-        # add traces
+        # add traces to plot
         fig.add_trace(curr_sens, row=1, col=1)
         fig.add_trace(best_fit, row=1, col=1)
         fig.add_trace(tds_model, row=1, col=1)
@@ -935,6 +1037,21 @@ class FUVTDSMonitor(object):
     
 
     def time_slope_graph(self, df, size, timebin, fig):
+        """
+        This tool is so I can reduce repetition in the app. This way one function will be called
+        to display the time vs slope graph in the dash app and to save as multiple html
+        files. This will reduce redundance of editing the same plotly code twice in different
+        places. 
+
+        Attributes:
+            df: the dataframe of all the monitored modes
+            size: the wavelength range size (either entire segment or 5 Å / 20 Å wavelength bins)
+            timebin: the breakpoint corresponding with the slope values
+            fig: empty plotly figure
+
+        Returns:
+            fig: populated plotly figure
+        """
 
         # Differentiate symbols - might be a better way to do this?
         marker_type = {'G140L': {'FUVA': 'square-open', 'FUVB': 'square'},
@@ -947,34 +1064,42 @@ class FUVTDSMonitor(object):
                     'G130M': {'FUVA': 0, 'FUVB': 0},
                     'G160M': {'FUVA': 0, 'FUVB': 0}}
 
+        # loop over all the monitored modes
         for cenwave in df['cenwave'].unique():
             for segment in df['segment'][df['cenwave'] == cenwave].unique():
 
+                # the sub-dataframe of a specific monitored mode
                 sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
-                grating = sub_df['opt_elem'].iloc[0]
+                grating = sub_df['opt_elem'].iloc[0] # grating
 
                 # scale to one 
                 scaled_df = self.scale_to_1(table=sub_df, size=size)
                 binned_wl = np.array([wl for wl in sub_df[f'{size}_binned_wl']])[0]
 
+                # grab the best fit model and errors from scaled monitored mode
                 best_fit_model = np.array([net for net in scaled_df[f'{size}_best_fit'].iloc[0]])
                 best_fit_model_err = np.array([net for net in scaled_df[f'{size}_best_fit_err'].iloc[0]])
 
+                # grab the slope and slope errors from the best fit model
                 slopes = best_fit_model[:,timebin*2+1]
                 slopes_err = best_fit_model_err[:,timebin*2+1]
-                
+
+                # the mediam slope and error values of the whole arrays 
                 med = np.median(slopes)
                 med_err = np.median(slopes_err)
 
+                # the indexes of where the slopes are over 3 sigmas
                 indx = np.where((slopes < med+50*med_err)&(slopes > med-50*med_err))
 
                 if np.any(indx): # if no points less than 3 sigma
 
-                    med = np.median(slopes[slopes < 0])
-                    indx = np.where(slopes <= 15)
+                    med = np.median(slopes[slopes < 0]) # grab the median slopes where slopes != 0 
+                    indx = np.where(slopes <= 15) # index of where slopes is less than 15%
 
+                    # if the size is large, aka entire segment
                     if len(binned_wl) <= 2: 
 
+                        # if statement to only show the trace in the legend once
                         if counter_mode[grating][segment] == 0:
                             trace = go.Scatter(
                                 x = binned_wl,
@@ -1002,6 +1127,7 @@ class FUVTDSMonitor(object):
 
                         fig.add_trace(trace)
                     
+                    # if the size is small, multiple wavelength bins
                     else:
                         if counter_mode[grating][segment] == 0:
                             trace = go.Scatter(
@@ -1030,6 +1156,7 @@ class FUVTDSMonitor(object):
 
                         fig.add_trace(trace)
                 
+                # if there are points less than 3 sigma
                 else:
                     # Needed for the 1327/FUVB bug since mode is no longer monitered
                     if len(slopes[indx]) == 0:
@@ -1071,6 +1198,17 @@ class FUVTDSMonitor(object):
 # --------------------------------------------------------------------------------#
     def add_lines(self, lines, style, name, yrange, second=False):
         """
+        Add vertical lines for the HV raises, breakpoints, LP changes, and more.
+
+        Attributes:
+            lines: np.array of decimalyear dates for HV raises, LP moves, breakpoints, etc
+            style: dictionary for the line style, for plotly
+            name: the name for the trace
+            yrange: the y-axis range for the length of the line
+            second: if there is a second panel to add the vertical lines to
+
+        Returns:
+            vlines: vertical lines, list of dictionaries for the vertical lines to put in plotly figure
         """
 
         # this list will host information about each line
@@ -1100,7 +1238,6 @@ class FUVTDSMonitor(object):
                     })
         else:
             for i, line in enumerate(lines):
-
                 vlines.append({
                         'x': [line, line],
                         'y': yrange,
@@ -1111,16 +1248,25 @@ class FUVTDSMonitor(object):
                         'showlegend': False
                     })
         
-        return(vlines)
+        return vlines
 
 # --------------------------------------------------------------------------------#
     def get_solar_data(self, spaceweather_url = 'https://www.spaceweather.gc.ca/solar_flux_data/daily_flux_values/fluxtable.txt'):
         """
         Get the solar flux data from this spaceweather website, updates each day.
+
+        Attributes:
+            spaceweather_url: the url where we retrieve the solar flux table
+        
+        Returns:
+            df: dataframe that contains the necessary information for solar flux to plot
+
         """
 
         # retrieve the flux table from the website where solar flux is hosted
         response = requests.get(spaceweather_url)
+
+        # if the response is good, proceed (status code 200 OK, request was successful)
         if response.status_code == 200:
             with open('fluxtable.txt', 'wb') as file:
                 file.write(response.content)
@@ -1146,11 +1292,25 @@ class FUVTDSMonitor(object):
             df = df[df['date'] >= 2009.5]
 
             # return solar flux df
-            return(df)
+            return df
 
 # --------------------------------------------------------------------------------#
     def tds_backout(self, response, wavelength, mjd, opt_elem, aperture, segment, cenwave, tdstab=None):
         """
+        Grab the TDS Model from the TDSTAB file
+
+        Attributes:
+            response: response curve, default 1.0
+            wavelength: wavelength range to back out the TDS Model from
+            mjd: date
+            opt_elem: grating
+            aperture: PSA or BOA, COS aperture
+            segment: segment FUVA or FUVB
+            cenwave: central wavelength
+            tdstab: the TDSTAB reference file
+        
+        Returns:
+            Backed out TDS model
         """
         #-------#
         # get correction array
@@ -1159,30 +1319,41 @@ class FUVTDSMonitor(object):
         def calculate_drop(time, ref_time, slope, intercept):
             """
             Equation comes from the current ICD-47
+
+            Attributes:
+                time: 
+                ref_time: mjd of COS first light, 2003
+                slope: TDS slope value
+                intercept: TDS intercept value
+            
+            Returns:
+                frac_drop: the fractional throughput drop
             """
 
             frac_drop = ( (( time - ref_time ) * slope) / (365.25*100) ) + intercept
             return frac_drop
         
-        tds_data = fits.getdata(tdstab,ext=1 )
+        tds_data = fits.getdata(tdstab,ext=1 ) # grab the tds data from tdstab file
         REF_TIME = fits.getval(tdstab,'REF_TIME',ext=1) #Should be 52922.0 (2003.77)
         mode_index = np.where((tds_data['OPT_ELEM'] == opt_elem) &
                             (tds_data['APERTURE'] == aperture) &
                             (tds_data['SEGMENT'] == segment) &
-                            (tds_data['CENWAVE'] == cenwave))[0]
+                            (tds_data['CENWAVE'] == cenwave))[0] # values from specific mode
 
         mode_line = tds_data[ mode_index ]
 
-        tds_nt = mode_line['NT'][0]
-        tds_wavelength = mode_line['WAVELENGTH'][0]
-        smaller_index = np.where( mode_line['TIME'][0][:tds_nt] < mjd )[0]
+        tds_nt = mode_line['NT'][0] # number of time breakpoints
+        tds_wavelength = mode_line['WAVELENGTH'][0] # wavelength range from the TDSTAB of specific mode
+        smaller_index = np.where( mode_line['TIME'][0][:tds_nt] < mjd )[0] # pick the slope values closest but less than nearest breakpoint
         time_index = smaller_index.max()
 
         tds_slope = mode_line['SLOPE'][0]
         tds_intercept = mode_line['INTERCEPT'][0]
 
+        # empty correction array to be filled
         correction_array = np.zeros( len(tds_wavelength) )
         
+        # loop over the wavelength range
         for i, _ in enumerate( tds_wavelength ):
             correction = calculate_drop( mjd, REF_TIME, tds_slope[time_index,i], tds_intercept[time_index,i] )
             correction_array[i] = correction
@@ -1190,7 +1361,6 @@ class FUVTDSMonitor(object):
         #-------
         # interpolate onto input arrays
         #------
-
         interp_function = interp1d( tds_wavelength, correction_array, 1 )
         interp_correction = interp_function( wavelength )
 
@@ -1300,23 +1470,32 @@ class FUVTDSMonitor(object):
 # --------------------------------------------------------------------------------#
     def scale_to_1(self, table, size):
         """
+        Scale specific monitored mode to one
+
+        Attributes:
+            table: dataframe of specific monitored mode
+            size: if "small" or "large", the size of wavelength bins
+        
+        Returns:
+            scaled_to_1_table: dataframe of specific monitored mode scaled to one at reftime
         """
         breakpoints = self.breakpoints - self.reftime
 
         if len(table) == 0:
             return
         
-        scaled_to_1_table = {}
+        scaled_to_1_table = {} # empty dataframe to be populated
 
         # date of all exposures of cenwave and segment 
         x = np.array(table['date-obs']).flatten() - self.reftime
 
+        # pull the binned net count rate, stdev, best_fit, and best fit error
         binned_net = np.array([binned_net for binned_net in table[f'{size}_scaled_net']])
         stdev = np.array([stdev for stdev in table[f'{size}_scaled_stdev']])
-
         best_fit      = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
         best_fit_err  = np.empty(( len(table[f'{size}_binned_wl'].iloc[0]), (len(self.breakpoints)+1)*2))
 
+        # loop over the binned wavelengths
         for i, _ in enumerate(table[f'{size}_binned_wl'].iloc[0]):
             
             # Scaled net count of given cenwave and segment
@@ -1353,9 +1532,9 @@ class FUVTDSMonitor(object):
             # conduct the fit here
             fit = self.mpfit_the_data(self.mpfitting_function, x, y, err = error, p0=initial_params, parinfo=parinfo)
 
+            # the parameters and parameters errors
             pars = fit[0]
             perrs = fit[2]
-
             best_fit[i,:] = pars
             best_fit_err[i,:] = perrs
 
@@ -1385,7 +1564,7 @@ class FUVTDSMonitor(object):
 
         scaled_to_1_table = pd.DataFrame(scaled_to_1_table)
         
-        return(scaled_to_1_table)
+        return scaled_to_1_table 
 
 # --------------------------------------------------------------------------------#
 
@@ -1508,7 +1687,7 @@ class FUVTDSMonitor(object):
                             'tied': '',
                             'mpprint': 1
                         })
-        return (parinfo)
+        return parinfo
     
 # --------------------------------------------------------------------------------#
     def mpfit_the_data(self, func, x, y, err=None, p0=None, parinfo=None):
@@ -1528,6 +1707,11 @@ class FUVTDSMonitor(object):
                 initial parameters guess
             parinfo: list of dictionaries
                 list of dictionaries with parameter information used in mpfit
+        
+        Returns:
+            popt: parameters
+            pcov: covarience
+            perr: parameters error
         """
         if err is None:
             err = np.ones(len(x))
@@ -1581,7 +1765,7 @@ class FUVTDSMonitor(object):
         pcov = m.covar
         perr = m.perror
 
-        return (popt, pcov, perr)
+        return popt, pcov, perr
 
 # --------------------------------------------------------------------------------#
     def mpfitting_function(self, p, fjac=None, x=None, y=None, err=None):
@@ -1599,6 +1783,10 @@ class FUVTDSMonitor(object):
                 scaled net count rate
             err: array
                 scaled stdev of scaled net count rate
+        
+        Returns:
+            status: status if the calculation was done or not
+            weighted_deviation: idk
         """
 
         status = 0
@@ -1623,4 +1811,4 @@ class FUVTDSMonitor(object):
 
         weighted_deviation = (y - model_y) / err
 
-        return ([status, weighted_deviation])
+        return [status, weighted_deviation]

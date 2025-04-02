@@ -16,9 +16,16 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 # this generates the data needed to run monitor
 def generate_data(PIDs='fuvtds_analysis_list.dat'):
-    fuvtds = FUVTDSBase(PIDs=PIDs)
-    df = fuvtds.tables
-    TDSDates = fuvtds.TDSDates
+    """
+    Stand alone function. This will generate the data needed to run the monitor.
+
+    Attributes:
+        PIDs: .dat file of TDS PIDs
+    """
+
+    fuvtds = FUVTDSBase(PIDs=PIDs) # pulls in the FUV TDS Base
+    df = fuvtds.tables # the dataframe full of the data needed
+    TDSDates = fuvtds.TDSDates # Grab the important dates
 
     return(df, TDSDates)
 
@@ -186,6 +193,9 @@ app.layout = html.Div(children=[
         Input("run-button", "n_clicks"),
 )
 def run_computation(n_clicks):
+    """
+    Button click function that will run the TDS analysis computation. 
+    """
     if n_clicks is None:
         return dash.no_update
     # run the computation
@@ -207,6 +217,27 @@ def run_computation(n_clicks):
        Input('sizes', 'value'),
        Input('wavelength-bins', 'value'))
 def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selected_segment, selected_size, selected_wl_bin):
+    """
+    Function that updates the relative sensitivity graph based on grating/cenwave/segment/size/wl_bin selection.
+    This function also calls on a function from the fuvtds_base_class.py in FUVTDSMonitor.
+
+    Attributes:
+        data: the df that contains all the tds analysis data
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+        selected_grating: the user selected grating in drop down menu
+        selected_cenwave: the user selected cenwave in drop down menu
+        selected_segment: the user selected segment in drop down menu
+        selected_size: the user selected size of wavelength bins in drop down menu
+                    these can be 'small' or 'large' aka 5 Angstrom Bins or Entire Segment Angstroms
+        selected_wl_bin: the user selected wavelength bin in radio items
+    
+    Returns:
+        Fig: Plotly figure that will be plotted in the dash app
+
+    """
+
+    # If there is no tds data / the run analysis button hasn't been clicked
+    # an empty figure will be returned
     if data is None:
         fig = make_subplots(rows=2, cols=1,
                         shared_xaxes=True,
@@ -214,23 +245,30 @@ def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selec
                         subplot_titles=(f'Relative net count rate',
                                         ''))
         return fig
+    
+    # read in the data as a dataframe
     df = pd.read_json(StringIO(data), orient='split')
 
+    # Make a sub-df of the specific mode the user selected
     df = df[
         (df['opt_elem'] == selected_grating) & 
         (df['cenwave'] == selected_cenwave) & 
         (df['segment'] == selected_segment)]
     
+    # flatten observation dates of exposures into a np array
     date = np.array(df['date-obs']).flatten()
 
+    # call the FUVTDSMonitor for more functions
     monitor = FUVTDSMonitor(dates)
 
     scaled_df = monitor.scale_to_1(table=df, size=selected_size) # scale to one
 
+    # retrieve the net count rate, net error, and best fit model from the scaled df
     net  = np.array([net for net in scaled_df[f'{selected_size}_scaled_net'].iloc[0]])
     net_err = np.array([net for net in scaled_df[f'{selected_size}_scaled_stdev'].iloc[0]])
     best_fit_model = np.array([net for net in scaled_df[f'{selected_size}_best_fit'].iloc[0]])
 
+    # retrieve the wl bins and wl edges from the sub-df
     binned_wl = np.array([wl for wl in df[f'{selected_size}_binned_wl']])[0]
     wl_edges  = np.array([wl for wl in df[f'{selected_size}_wl_edges']])[0]
 
@@ -242,15 +280,20 @@ def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selec
         selected_segment, selected_cenwave, TDSTAB
     ) for mjd in date])
 
+    # establish the plotly figure
     fig = make_subplots(rows=2, cols=1,
                         shared_xaxes=True,
                         vertical_spacing=0.05,
                         subplot_titles=(f'{selected_grating}/{selected_cenwave}/{selected_segment} - Relative net count rate',
                                         ''))
 
+    # loop over the wavelength bins
     for i, wl in enumerate(binned_wl):
+        
+        # if the specific wavelength bin is the same as the user selected wl bin, then plot
         if wl == selected_wl_bin:
 
+            # pulls in function from FUVTDSMonitor that will plot the relative sensitivity data
             fig, x = monitor.rel_sens_graph(date, net, net_err, i, wl_edges, best_fit_model, df, tds, fig)
     # update the x-axes
     fig.update_xaxes(title_text='Date', range=(x[0]-0.1, x[-1]+0.1), row=2, col=1)
@@ -266,6 +309,18 @@ def update_rel_sens_graph(data, dates, selected_grating, selected_cenwave, selec
        Input('computed-results', 'data'),
        Input('dates', 'data'))
 def update_solar_flux_graph(data, dates):
+    """
+    Update the solar flux graph. The solar flux values are updated to-date every time the dash app is ran.
+    All aspects of the plot are interactive.
+
+    Attributes:
+        data: the df that contains all the tds analysis data
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+
+    Return:
+        Fig: Plotly figure that will be plotted in the dash app
+
+    """
     if data is None:
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         return fig
@@ -284,6 +339,7 @@ def update_solar_flux_graph(data, dates):
     # !!! Plot the solar flux from dataframe, both smoothed and unsmoothed
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
+    # Make the traces from the solar flux data
     unsmoothed = go.Scatter(x = solar['date'],
                             y = solar['f10.7'],
                             line_shape='linear',
@@ -300,19 +356,21 @@ def update_solar_flux_graph(data, dates):
     # differentiate the A seg from B seg
     marker_type = {'FUVA': 'circle', 'FUVB': 'x'}
 
-    # plot the fractional throughput
+    # plot the fractional throughput - loop through the monitored modes
     for cenwave in df['cenwave'].unique():
         for segment in df['segment'][df['cenwave'] == cenwave].unique():
 
+            # the sub-df of a specific monitored mode
             sub_df = df[
                 (df['cenwave'] == cenwave) & 
                 (df['segment'] == segment)]
+            
             # scale to one for large bins (always been large bins)
             scaled_df = monitor.scale_to_1(table=sub_df, size='large')
 
-            grating = sub_df['opt_elem'].iloc[0]
-            date = np.array(sub_df['date-obs']).flatten()
-            net = np.array([net for net in scaled_df['large_scaled_net'].iloc[0]])
+            grating = sub_df['opt_elem'].iloc[0] # the grating of the mode
+            date = np.array(sub_df['date-obs']).flatten() # flatten observation dates of exposures
+            net = np.array([net for net in scaled_df['large_scaled_net'].iloc[0]]) # flatten large scaled net 
 
             # Fractional throughput, loop over all monitored modes
             frac_throughput = go.Scatter(
@@ -369,6 +427,19 @@ def update_solar_flux_graph(data, dates):
        Input('sizes', 'value'),
        Input('timebins', 'value'))
 def update_time_slope_graph(data, dates, selected_size, selected_time_bin):
+    """
+    Update the wavelength vs slope graph over time, from selected size and time bin
+
+    Attributes:
+        data: the df that contains all the tds analysis data
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+        selected_size: the user selected size of wavelength bins in drop down menu
+                    these can be 'small' or 'large' aka 5 Angstrom Bins or Entire Segment Angstroms
+        selected_wl_bin: the user selected wavelength bin in radio items
+    
+    Return:
+        Fig: Plotly figure that will be plotted in the dash app
+    """
 
     if data is None:
         fig = go.Figure()
@@ -384,6 +455,7 @@ def update_time_slope_graph(data, dates, selected_size, selected_time_bin):
     # Establish plot
     fig = go.Figure()
 
+    # Pull the function from the FUVTDSMonitor
     fig = monitor.time_slope_graph(df, selected_size, selected_time_bin, fig)
 
     return fig
@@ -401,6 +473,22 @@ def update_time_slope_graph(data, dates, selected_size, selected_time_bin):
         Input('computed-results', 'data'),
         Input('dates', 'data'))
 def save_large_thruput(n_clicks, data, dates):
+    """
+    Save a .csv file of the fractional throughput of the TDS analysis data.
+    This is to replace the .ascii file used in the old version of the FUV TDS Monitor.
+    Similar to the .ascii file, this .csv file contains "large" throughput, which means
+    the relative throughput of the entire wavelength range of monitored modes.
+
+    Attributes:
+        n_clicks: the button if clicked will signal dash app to save the csv file
+        data: the df that contains all the tds analysis data
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+
+    Returns:
+        Send dataframe to be saved as a csv file locally (check your downloads folder)
+    """
+    
+    # this is ensure the "run analysis" button has been pressed
     if n_clicks is None:
         return dash.no_update
     if data is None:
@@ -408,16 +496,22 @@ def save_large_thruput(n_clicks, data, dates):
     
     df = pd.read_json(StringIO(data), orient='split')
 
+    # empty list of dataframes
     tables = []
 
     # establish the functions necessary for the analysis
     monitor = FUVTDSMonitor(dates)
+
+    # Look through each monitored mode
     for cenwave in df['cenwave'].unique():
         for segment in df['segment'][df['cenwave'] == cenwave].unique():
+
+            # sub-df of a specific monitored mode
             sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
+
             scaled_df = monitor.scale_to_1(table=sub_df, size='large') # scale to one
 
-            # This with statement is to remove the false positivie error in doing this process
+            # This with statement is to remove the false positive error in doing this process
             with pd.option_context("mode.copy_on_write", True):
                 # change scaled net count to a format we can use
                 sub_df.loc[:,'relative_throughput'] = np.array([net for net in scaled_df.loc[0, 'large_scaled_net']])
@@ -432,28 +526,44 @@ def save_large_thruput(n_clicks, data, dates):
                                      sub_df['relative_throughput_err']],
                                      axis=1)
 
+            # add sub dataframe to the list of dataframes to be saved
             tables.append(combined_df)
     
+    # combine list of dataframes
     df = pd.concat(tables)
             
     # save the csv -- maybe put in a date function for the name?
-    return dcc.send_data_frame(df.to_csv, 'test_large_thruput.csv', index=False)
+    return dcc.send_data_frame(df.to_csv, f"alldata_{monitor.datetime_str()}.csv", index=False)
 
 ## ------- SAVING METHODS ------- ##
-# save html files!!! save the solar flux
 @callback(
     Output('solar-flux-html', 'data'),
     Input('save-solar-flux', 'n_clicks'),
+    Input('dates', 'data'),
     Input('solar-flux', 'figure')
 )
-def save_figure_as_html(n_clicks, figure):
+def save_figure_as_html(n_clicks, dates, figure):
+    """
+    Save the solar flux graph as an html file.
+
+    Attributes:
+        n_clicks: button if clicked will trigger download
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+        figure: plotly figure that holds the solar flux graph
+
+    Returns:
+        The html file saved locally (check your downloads)
+    """
     if n_clicks:
          # Convert the figure to HTML
         fig = go.Figure(figure)
         html_str = fig.to_html(full_html=False)
 
+        # establish the functions necessary for the analysis
+        monitor = FUVTDSMonitor(dates)
+
         # Trigger the download
-        return dict(content=html_str, filename="test_solar_flux.html")
+        return dict(content=html_str, filename=f"solar_flux_{monitor.datetime_str()}.html")
 
 ## ------- SAVING METHODS ------- ##
 # save the time slope vs wavelength plots
@@ -465,7 +575,20 @@ def save_figure_as_html(n_clicks, figure):
     Input('sizes', 'value')
 )
 def save_time_slope_as_html(n_clicks, data, dates, selected_size):
+    """
+    Save the wavelength vs slope over time as multiple figures as one html file.
 
+    Attributes:
+        n_clicks: the button if clicked will signal dash app to save the csv file
+        data: the df that contains all the tds analysis data
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+        selected_size: the size of the wavelength bins, either "large" or "small"
+    
+    Returns:
+        Saved html file
+    """
+
+    # Check if the button was click and if the analysis was run
     if n_clicks is None:
         return dash.no_update
     if data is None:
@@ -480,31 +603,40 @@ def save_time_slope_as_html(n_clicks, data, dates, selected_size):
     monitor = FUVTDSMonitor(dates)
 
 
-    # look over breakpoints
+    # loop over breakpoints
     figs = []
     for i, bp in enumerate(monitor.breakpoints):
         # Establish plot
         fig = go.Figure()
 
+        # time_slope_graph function pulled from FUVTDS Monitor
         fig = monitor.time_slope_graph(df, selected_size, i, fig)
 
+        # change the title if this was the first breakpoint
         if i == 0:
             fig.update_layout(title_text=f"t < {bp}")
         
+        # change the title if this was the last breakpoint
         elif i == len(monitor.breakpoints)-1:
-            fig.update_layout(title_text=f'{bp} < t')
+            fig.update_layout(title_text=f'{bp} > t')
+        
+        # change the title if this is a breakpoint in between the first and last
         else:
             fig.update_layout(title_text=f'{monitor.breakpoints[i-1]} < t < {bp}')
 
+        # add figure to list of figures to be saved
         figs.append(fig)
     
 
+    # empty html str
     html_str = ""
+
+    # loop over the figs to change to html strings
     for fig in figs:
         html_str+=fig.to_html(full_html=False)
 
     # Trigger the download
-    return dict(content=html_str, filename="test_time_slope.html")
+    return dict(content=html_str, filename=f"time_vs_slope_{monitor.datetime_str()}.html")
 
 ## ------- SAVING METHODS ------- ##
 # save the relative sensitivity plots
@@ -516,7 +648,20 @@ def save_time_slope_as_html(n_clicks, data, dates, selected_size):
         Input('sizes', 'value')
 )
 def save_relative_as_html(n_clicks, data, dates, selected_size):
+    """
+    Save the relative throughput as multiple figures as one html file.
 
+    Attributes:
+        n_clicks: the button if clicked will signal dash app to save the csv file
+        data: the df that contains all the tds analysis data
+        dates: important dates needed to call in the FUVTDSMonitor for other functions
+        selected_size: the size of the wavelength bins, either "large" or "small"
+    
+    Returns:
+        Saved html file
+    """
+
+    # Check if the button was click and if the analysis was run
     if n_clicks is None:
         return dash.no_update
     if data is None:
@@ -534,20 +679,24 @@ def save_relative_as_html(n_clicks, data, dates, selected_size):
     zip_buffer = BytesIO()
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # loop over all the things 
+        # loop over all the monitored modes 
         for cenwave in df['cenwave'].unique():
             for segment in df['segment'][df['cenwave'] == cenwave].unique():
+
+                # the sub-df of a specific monitored mode
                 sub_df = df[(df['cenwave'] == cenwave) & (df['segment'] == segment)]
                 date = np.array(sub_df['date-obs']).flatten()
-                grating = sub_df['opt_elem'].iloc[0]
+                grating = sub_df['opt_elem'].iloc[0] # grating
 
                 # scale to one
                 scaled_df = monitor.scale_to_1(table=sub_df, size=selected_size) 
 
+                # grab the net, error, and model from the scaled to one dataframe
                 net  = np.array([net for net in scaled_df[f'{selected_size}_scaled_net'].iloc[0]])
                 net_err = np.array([net for net in scaled_df[f'{selected_size}_scaled_stdev'].iloc[0]])
                 best_fit_model = np.array([net for net in scaled_df[f'{selected_size}_best_fit'].iloc[0]])
 
+                # grab the binned wavelength and wavelength edges from the sub-dataframe
                 binned_wl = np.array([wl for wl in sub_df[f'{selected_size}_binned_wl']])[0]
                 wl_edges  = np.array([wl for wl in sub_df[f'{selected_size}_wl_edges']])[0]
 
@@ -561,12 +710,15 @@ def save_relative_as_html(n_clicks, data, dates, selected_size):
                 # loop over the binned wl
                 figs = []
                 for i, wl in enumerate(binned_wl):
+
+                    # make a 2-panel subplot
                     fig = make_subplots(rows=2, cols=1, 
                                     shared_xaxes=True,
                                     vertical_spacing=0.05,
                                     subplot_titles=(f'{grating}/{cenwave}/{segment} - Relative net count rate {wl_edges[i]} - {wl_edges[i+1]} Å',
                                             ''))
 
+                    # pull in the relative sensitivity graph function from FUVTDSMonitor
                     fig, x = monitor.rel_sens_graph(date, net, net_err, i, wl_edges, best_fit_model, sub_df, tds, fig)
 
                     # update the x-axes
@@ -574,6 +726,7 @@ def save_relative_as_html(n_clicks, data, dates, selected_size):
                     fig.update_yaxes(title_text='Relative net count rate', row=1, col=1),
                     fig.update_yaxes(title_text='Percent Difference', row=2, col=1)
 
+                    # add the fig to a list of figures
                     figs.append(fig)
         
                 # Trigger the download
@@ -581,12 +734,14 @@ def save_relative_as_html(n_clicks, data, dates, selected_size):
                 for fig in figs:
                     html_str+=fig.to_html(full_html=False)
                 
-                zip_file.writestr(f"test_relative_{cenwave}_{segment}.html", html_str)
+                # write to the zip file
+                zip_file.writestr(f"relative_{cenwave}_{segment}_{monitor.datetime_str()}.html", html_str)
 
-    
+    # not totally what this does
     zip_buffer.seek(0)
     
-    return dcc.send_bytes(zip_buffer.read(), "test_relative_sens.zip")
+    # trigger download
+    return dcc.send_bytes(zip_buffer.read(), f"relative_sens_{monitor.datetime_str()}.zip")
     
 
 ## ------- SAVING METHODS ------- ##
@@ -713,7 +868,6 @@ def set_timebin_options(data, dates):
     return(options, value)
 ## ------- BUTTONS ------- ##
 ## ------- BUTTONS ------- ##
-
 
 if __name__ == '__main__':
     app.run(debug=True)
