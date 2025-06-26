@@ -40,51 +40,6 @@ TDSTAB = '/grp/hst/cdbs/lref/83j20454l_tds.fits'
 app.layout = html.Div(children=[
     # Container for the labels, dropdowns, and button (on top of the tabs)
     html.Div(children=[
-        # Grating Dropdown
-        html.Div(children=[
-            html.Label('Grating', style={
-                'display': 'block',
-                'textAlign': 'center',
-            }),
-            dcc.Dropdown(
-                id='gratings', style={
-                    'display': 'block',
-                    'width': '80%',
-                    'margin': '0 auto'
-                }
-            ),
-        ], style={'width': '20%', 'textAlign': 'center'}),
-
-        # Cenwave Dropdown
-        html.Div(children=[
-            html.Label('Cenwave', style={
-                'display': 'block',
-                'textAlign': 'center',
-            }),
-            dcc.Dropdown(
-                id='cenwaves', style={
-                    'display': 'block',
-                    'width': '80%',
-                    'margin': '0 auto'
-                }
-            ),
-        ], style={'width': '20%', 'textAlign': 'center'}),  
-
-        # Segment Dropdown
-        html.Div(children=[
-            html.Label('Segment', style={
-                'display': 'block',
-                'textAlign': 'center',
-            }),
-            dcc.Dropdown(
-                id='segments', style={
-                    'display': 'block',
-                    'width': '80%',
-                    'margin': '0 auto'
-                }
-            ),
-        ], style={'width': '20%', 'textAlign': 'center'}),  
-
         # Size Dropdown
         html.Div(children=[
             html.Label('Size', style={
@@ -128,24 +83,35 @@ app.layout = html.Div(children=[
                 selected_className='custom-tab--selected',
                 children=[
                     html.Div(children=[
-                        # Container for the plot in the middle
+                        # Left column: Dropdowns
                         html.Div(children=[
+                            html.Label('Grating', style={'textAlign': 'center'}),
+                            dcc.Dropdown(id='gratings', style={'width': '90%', 'margin': '10px auto'}),
+
+                            html.Label('Cenwave', style={'textAlign': 'center'}),
+                            dcc.Dropdown(id='cenwaves', style={'width': '90%', 'margin': '10px auto'}),
+
+                            html.Label('Segment', style={'textAlign': 'center'}),
+                            dcc.Dropdown(id='segments', style={'width': '90%', 'margin': '10px auto'}),
+
                             html.Button("Download Throughput", id='btn_csv'),
                             dcc.Download(id='large-thruput'),
-                            dcc.Graph(id='relative-net', style={'height': '700px'})
-                        ], style={'width': '85%', 'display': 'inline-block', 'vertical-align': 'top'}),
+                        ], style={'width': '20%', 'textAlign': 'center', 'verticalAlign': 'top'}),
 
-                        # Container for the right side (RadioItems)
+                        # Center column: Plot
                         html.Div(children=[
+                            dcc.Graph(id='relative-net', style={'height': '700px'}),
                             html.Button("Save as HTML", id='save-relative-net'),
                             dcc.Download(id='relative-html'),
+                        ], style={'width': '60%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+
+                        # Right column: RadioItems
+                        html.Div(children=[
                             html.Label('Wavelength Bins'),
-                            dcc.RadioItems(
-                                id='wavelength-bins'
-                            ),
+                            dcc.RadioItems(id='wavelength-bins'),
                             html.Br()
-                        ], style={'max-height': '300px', 'overflow-y': 'scroll', 'padding': '10px'})
-                    ], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'space-between'}),  # Flexbox for layout
+                        ], style={'maxHeight': '300px', 'overflowY': 'scroll', 'padding': '10px', 'width': '20%'})
+                    ], style={'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'space-between'}),
                 ]
             ),
             dcc.Tab(
@@ -153,9 +119,9 @@ app.layout = html.Div(children=[
                 className='custom-tab',
                 selected_className='custom-tab--selected',
                 children=[
+                    dcc.Graph(id='solar-flux', style={'height': '700px'}),
                     html.Button("Save as HTML", id='save-solar-flux'),
-                    dcc.Download(id='solar-flux-html'),
-                    dcc.Graph(id='solar-flux', style={'height': '700px'})
+                    dcc.Download(id='solar-flux-html')
                 ]
             ),
             dcc.Tab(
@@ -166,9 +132,9 @@ app.layout = html.Div(children=[
                     html.Div(children=[
                         # Container for the plot in the middle
                         html.Div(children=[
+                            dcc.Graph(id='time-slope', style={'height': '700px'}),
                             html.Button("Save as HTML", id='save-time-slope'),
-                            dcc.Download('time-slope-html'),
-                            dcc.Graph(id='time-slope', style={'height': '700px'})
+                            dcc.Download('time-slope-html')
                         ], style={'width': '85%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
                         # Container for the right side (RadioItems)
@@ -383,14 +349,16 @@ def update_solar_flux_graph(data, dates):
                     (sub_df['rootname'],
                      sub_df['life_adj'],
                      sub_df['proposid'],
-                     sub_df['targname']),
+                     sub_df['targname'],
+                     sub_df['date-obs-fits']),
                      axis=-1
                 ),
                 hovertemplate=
                 'Rootname: %{customdata[0]}<br>'+
                 'Life_adj: %{customdata[1]}<br>'+
                 'Proposid: %{customdata[2]}<br>'+
-                'Target: %{customdata[3]}'
+                'Target: %{customdata[3]}<br>'+
+                'Date Obs: %{customdata[4]}'
                 "<extra></extra>"
             )
 
@@ -415,7 +383,7 @@ def update_solar_flux_graph(data, dates):
 
     # set y-axis titles
     fig.update_yaxes(title_text="Fractional Throughput", range=(0.0, 1.1), secondary_y=False)
-    fig.update_yaxes(title_text="10.7 cm Flux (units here)", range=(50, 400), secondary_y=True)
+    fig.update_yaxes(title_text="10.7 cm Flux ($10^{-22}$ $J/s/m^{2}/Hz$)", range=(50, 400), secondary_y=True)
 
     return fig
 

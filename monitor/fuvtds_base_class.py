@@ -43,7 +43,7 @@ class FUVTDSBase:
         inventory: csv file that will save all data used in fuv tds analysis
     """
 
-    def __init__(self, PIDs, reftime = 54952.0, inventory='inventory.csv'):
+    def __init__(self, PIDs, reftime = 54952.0):
         """
         Attributes:
             breakpoints: the current TDS breakpoints in use in decimalyear
@@ -65,10 +65,35 @@ class FUVTDSBase:
         self.segments = ['FUVA', 'FUVB']
         self.reftime = Time(reftime, format="mjd").decimalyear
 
-        tables = self.parse_infiles(PIDs, inventory)
+        tables = self.parse_infiles(PIDs, csv_file=f'inventory_{self.datetime_str()}.csv')
         self.tables = self.scalings(tables)
         self.TDSDates = self.important_dates()
     
+# --------------------------------------------------------------------------------#
+    def datetime_str(self):
+        """
+        This is taken from helper_functions.py from the original FUV TDS analysis scripts.
+        This function pulls in the datetime.today() function from datetime python package
+        and converts the result into a string to be used in adding dates to plots and other
+        output files.
+
+        There is probably a better way to do this, but I do not wish to figure it out now.
+        """
+        today_date = datetime.today()
+        year = today_date.year
+        month = today_date.month
+        day = today_date.day
+
+        if (month < 10) and (day < 10):
+            date_str = '%i0%i0%i' %(year, month, day)
+        elif (month < 10) and (day >= 10):
+            date_str = '%i0%i%i' %(year, month, day)
+        elif (day < 10) and (month >= 10):
+            date_str = '%i%i0%i' % (year, month, day)
+        else:
+            date_str = '%i%i%i' %(year, month, day)
+        return date_str
+# --------------------------------------------------------------------------------#
     def important_dates(self):
         """
         Save the important dates of the FUV TDS
@@ -592,13 +617,15 @@ class FUVTDSBase:
                            'ldv010etq', 'ler107a7q', 'ldqj05yoq', 'ldqj08jdq', 'ldqj12e6q', 'ldqj56a7q', 
                            'ldqj57tvq', 'ldqj59jxq', 'ldv007pmq', 'ldv008orq', 'ldv010fvq', 'le5g07naq', 
                            'ler15bhaq', 'lf205ag7q', 'lefe03gjq', 'lbxmt3m3q', 'lbxm04p7q', 'lbxmt3mcq',
-                           'lbxmt3m1q', 'lf4g8aj5q', 'lf4g06fhq', 'lf4h06xjq', 'lf4h5agqq', 'lf4g06fhq'], 
+                           'lbxmt3m1q', 'lf4g8aj5q', 'lf4g06fhq', 'lf4h06xjq', 'lf4h5agqq', 'lf4g06fhq',
+                           'lfib3aj5q', 'lfib3aj7q', 'lfic3aggq', 'lfic3ahiq', 'lfic3bpwq'], 
                 'G140L': ['ldv007piq', 'ldv008onq', 'ldv010fpq', 'le5g07n4q', 'ler158owq', 'lf205ag2q',
                           'ldqj05ymq', 'ldqj08jbq', 'ldqj12eeq', 'ldqj56afq', 'ldqj57u3q', 'ldqj58hpq',
                           'ldqj59k5q', 'ldv007pkq', 'ldv008opq', 'ldv010ftq', 'le5g07n8q', 'lf205ag4q',
                           'ldqj05ykq', 'ldqj08j9q', 'ldqj12ecq', 'ldqj56adq', 'ldqj57u1q', 'ldqj58hmq',
                           'ldqj59k3q', 'ldv007paq', 'ldv010evq', 'lefe03grq', 'lbxmt1nzq', 'lbxmt3lwq',
-                          'lbxmt3mfq', 'lf4h8ar8q', 'lf4h8araq', 'lf4h5agiq', 'lf4h5agoq', 'lf4h5agmq'],
+                          'lbxmt3mfq', 'lf4h8ar8q', 'lf4h8araq', 'lf4h5agiq', 'lf4h5agoq', 'lf4h5agmq',
+                          'lfic3ahdq', 'lfic3ahfq', 'lfic4apgq', 'lfic4apiq'],
                 'G160M': ['lbb917kfq', 'ldv006lqq', 'ldv007pcq', 'ler106dqq', 'lf2056ftq', 'ldqj05y0q', 
                           'ldqj08j3q', 'ldqj13e9q', 'ldqj12e8q', 'ldqj56a9q', 'ldqj57txq', 'ldqj58hgq', 
                           'ldv006lsq', 'ldqj59jzq', 'ldv007peq', 'ldv008ojq', 'ldv010flq', 'ler106dsq',
@@ -608,7 +635,7 @@ class FUVTDSBase:
                           'lf205bb8q', 'lf2111zuq', 'ler106duq', 'ler106dkq', 'lbxm02agq', 'lbxm02bxq', 
                           'lf2111zoq', 'lf2006lmq', 'lbxm02ayq', 'lf205bb1q', 'lf4g06fnq', 'lf4h06y5q',
                           'lf4h06y1q', 'lf4h06ydq', 'lf4h5bn8q', 'lf4h5bn2q', 'lf4h5bnkq', 'lf4g06fnq', 
-                          'lf4g07cqq']} 
+                          'lf4g07cqq', 'lfic3bqiq']} 
             return (bad_roots[grating])
    
 
@@ -784,7 +811,6 @@ class FUVTDSBase:
                                                 'large_scaled_stdev',
                                                 'date-obs'])
            csv_file_save = csv_file_save.rename(columns={'date-obs-fits': 'date-obs'})
-           #tables = tables.drop(columns=['date-obs-fits'])
            if os.path.exists(csv_file):
                csv_file_save.to_csv(csv_file, mode='w+')
            else:
